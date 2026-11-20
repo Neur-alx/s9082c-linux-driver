@@ -1607,8 +1607,10 @@ void odm_dm_init(struct dm_struct *dm)
 #ifdef PHYDM_SUPPORT_CCKPD
 	phydm_cck_pd_init(dm);
 #endif
-	phydm_env_monitor_init(dm);
-	phydm_adaptivity_init(dm);
+	if (!(dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082)) {
+		phydm_env_monitor_init(dm);
+		phydm_adaptivity_init(dm);
+	}
 	phydm_ra_info_init(dm);
 	phydm_rssi_monitor_init(dm);
 	phydm_cfo_tracking_init(dm);

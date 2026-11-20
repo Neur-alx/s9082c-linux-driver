@@ -227,16 +227,28 @@ static u32 _InitPowerOn_8188ES(PADAPTER padapter)
 	rtw_write8(padapter, REG_GPIO_IO_SEL_2 + 1, value8);
 #endif
 
-	/* Enable power down and GPIO interrupt */
-	value16 = rtw_read16(padapter, REG_APS_FSMCO);
-	value16 |= EnPDN; /* Enable HW power down and RF on */
-	rtw_write16(padapter, REG_APS_FSMCO, value16);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* AlexELEC PowerOn_9082XS_Init (0x6d2d8-0x6d318): bit-reversed EnPDN (0x0008) & REG_CR (0x60fc) */
+		value16 = rtw_read16(padapter, REG_APS_FSMCO);
+		value16 |= 0x0008;
+		rtw_write16(padapter, REG_APS_FSMCO, value16);
 
-	/* Enable MAC DMA/WMAC/SCHEDULE/SEC block */
-	value16 = rtw_read16(padapter, REG_CR);
-	value16 |= (HCI_TXDMA_EN | HCI_RXDMA_EN | TXDMA_EN | RXDMA_EN
-		    | PROTOCOL_EN | SCHEDULE_EN | ENSEC | CALTMR_EN);
-	rtw_write16(padapter, REG_CR, value16);
+		rtw_write8(padapter, REG_CR, 0x00);
+		value16 = rtw_read16(padapter, REG_CR);
+		value16 |= 0x60fc;
+		rtw_write16(padapter, REG_CR, value16);
+	} else {
+		/* Enable power down and GPIO interrupt */
+		value16 = rtw_read16(padapter, REG_APS_FSMCO);
+		value16 |= EnPDN; /* Enable HW power down and RF on */
+		rtw_write16(padapter, REG_APS_FSMCO, value16);
+
+		/* Enable MAC DMA/WMAC/SCHEDULE/SEC block */
+		value16 = rtw_read16(padapter, REG_CR);
+		value16 |= (HCI_TXDMA_EN | HCI_RXDMA_EN | TXDMA_EN | RXDMA_EN
+			    | PROTOCOL_EN | SCHEDULE_EN | ENSEC | CALTMR_EN);
+		rtw_write16(padapter, REG_CR, value16);
+	}
 
 	/* Enable CMD53 R/W Operation
 	*	bMacPwrCtrlOn = TRUE;
@@ -658,7 +670,10 @@ static void _InitNetworkType(PADAPTER padapter)
 
 	/* TODO: use the other function to set network type
 	*	value32 = (value32 & ~MASK_NETTYPE) | _NETTYPE(NT_LINK_AD_HOC); */
-	value32 = (value32 & ~MASK_NETTYPE) | _NETTYPE(NT_LINK_AP);
+	if (GET_HAL_DATA(padapter)->is_s9082)
+		value32 = (value32 & ~0x00c00000) | 0x00400000;
+	else
+		value32 = (value32 & ~MASK_NETTYPE) | _NETTYPE(NT_LINK_AP);
 
 	rtw_write32(padapter, REG_CR, value32);
 }
@@ -1323,8 +1338,6 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 	if (GET_HAL_DATA(padapter)->is_s9082) {
 		u8 cr_val, ledcfg;
-		u16 txdma_chk;
-		u32 fwhw_txq;
 
 		/* 1. REG_CR: Enable MAC TX and RX (bits 0 and 1 on S9082) */
 		cr_val = rtw_read8(padapter, 0x4100);
@@ -1359,20 +1372,6 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 		ledcfg = rtw_read8(padapter, 0x4016);
 		rtw_write8(padapter, 0x4016, (ledcfg & 0xf0) | 0x01);
 		rtw_write8(padapter, 0x4016, (ledcfg & 0xf0) | 0x09);
-
-		/* 9. RRSR & TX report time */
-		rtw_write8(padapter, 0x4421, 0xf0);
-		rtw_write16(padapter, 0x44f0, 0xbc0f);
-
-		/* 10. TXDMA offset check (bit 14) & FWHW TXQ control (bit 11) */
-		txdma_chk = rtw_read16(padapter, 0x420c);
-		rtw_write16(padapter, 0x420c, txdma_chk | 0x4000);
-
-		fwhw_txq = rtw_read32(padapter, 0x4420);
-		rtw_write32(padapter, 0x4420, fwhw_txq | 0x800);
-
-		/* 11. Baseband EDCCA / adaptivity threshold (0x4c4c) */
-		rtw_write32(padapter, 0x4c4c, 0x00fe0301);
 	} else {
 		/* Enable MACTXEN/MACRXEN block */
 		value16 = rtw_read16(padapter, REG_CR);
@@ -1463,12 +1462,14 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 			/*		dm_check_txpowertracking(padapter);
 			 *		phy_lc_calibrate(padapter); */
 
-			HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_PW_TRACK);
-			odm_txpowertracking_check(&pHalData->odmpriv);
+			if (!pHalData->is_s9082) {
+				HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_PW_TRACK);
+				odm_txpowertracking_check(&pHalData->odmpriv);
 
-			HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_LCK);
-			/*phy_lc_calibrate_8188e(&pHalData->odmpriv);*/
-			halrf_lck_trigger(&pHalData->odmpriv);
+				HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_LCK);
+				/*phy_lc_calibrate_8188e(&pHalData->odmpriv);*/
+				halrf_lck_trigger(&pHalData->odmpriv);
+			}
 
 		}
 	}
@@ -1514,16 +1515,16 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 	if (IS_HARDWARE_TYPE_8188ES(padapter)) {
 		value8 = rtw_read8(padapter, 0x4d3);
-		rtw_write8(padapter, 0x4d3, (value8 | 0x1));
+		rtw_write8(padapter, 0x4d3, (value8 | (pHalData->is_s9082 ? 0x80 : 0x1)));
 	}
 
 	/* pHalData->PreRpwmVal = PlatformEFSdioLocalCmd52Read1Byte(Adapter, SDIO_REG_HRPWM1)&0x80; */
 
 	if (!pHalData->fw_ractrl) {
 		/* enable Tx report. */
-		rtw_write8(padapter,  REG_FWHW_TXQ_CTRL + 1, 0x0F);
+		rtw_write8(padapter,  REG_FWHW_TXQ_CTRL + 1, pHalData->is_s9082 ? 0xf0 : 0x0F);
 		/* tynli_test_tx_report. */
-		rtw_write16(padapter, REG_TX_RPT_TIME, 0x3DF0);
+		rtw_write16(padapter, REG_TX_RPT_TIME, pHalData->is_s9082 ? 0xbc0f : 0x3DF0);
 	}
 #if 0
 	/*  Suggested by SD1 pisa. Added by tynli. 2011.10.21. */
@@ -1534,7 +1535,8 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 
 	/* enable tx DMA to drop the redundate data of packet */
-	rtw_write16(padapter, REG_TXDMA_OFFSET_CHK, (rtw_read16(padapter, REG_TXDMA_OFFSET_CHK) | DROP_DATA_EN));
+	rtw_write16(padapter, REG_TXDMA_OFFSET_CHK,
+		(rtw_read16(padapter, REG_TXDMA_OFFSET_CHK) | (pHalData->is_s9082 ? 0x4000 : DROP_DATA_EN)));
 
 	/* #debug print for checking compile flags */
 	/* RTW_INFO("RTL8188E_FPGA_TRUE_PHY_VERIFICATION=%d\n", RTL8188E_FPGA_TRUE_PHY_VERIFICATION); */
@@ -1557,12 +1559,17 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 #ifdef CONFIG_XMIT_ACK
 	/* ack for xmit mgmt frames. */
-	rtw_write32(padapter, REG_FWHW_TXQ_CTRL, rtw_read32(padapter, REG_FWHW_TXQ_CTRL) | BIT(12));
+	rtw_write32(padapter, REG_FWHW_TXQ_CTRL,
+		rtw_read32(padapter, REG_FWHW_TXQ_CTRL) | (pHalData->is_s9082 ? 0x00000800 : BIT(12)));
 #endif /* CONFIG_XMIT_ACK */
 
-	if (padapter->registrypriv.wifi_spec == 1)
-		odm_set_bb_reg(pDM_Odm,
-			     rOFDM0_ECCAThreshold, bMaskDWord, 0x00fe0301);
+	if (padapter->registrypriv.wifi_spec == 1) {
+		if (pHalData->is_s9082)
+			rtw_write32(padapter, 0x4c4c, 0x00fe0301);
+		else
+			odm_set_bb_reg(pDM_Odm,
+				     rOFDM0_ECCAThreshold, bMaskDWord, 0x00fe0301);
+	}
 
 	RTW_INFO("-rtl8188es_hal_init\n");
 

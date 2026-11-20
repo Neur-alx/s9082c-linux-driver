@@ -1706,7 +1706,7 @@ PHY_SetSwChnlBWMode8188E(
 
 	rtw_hal_set_tx_power_level(Adapter, channel);
 
-	if (pHalData->bNeedIQK == _TRUE) {
+	if (!pHalData->is_s9082 && pHalData->bNeedIQK == _TRUE) {
 		if (pHalData->neediqk_24g == _TRUE) {
 
 			halrf_iqk_trigger(&pHalData->odmpriv, _FALSE);

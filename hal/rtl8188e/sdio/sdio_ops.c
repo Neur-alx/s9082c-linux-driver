@@ -798,16 +798,18 @@ s32 _sdio_local_read(
 	}
 
 	n = RND4(cnt);
-	ptmpbuf = (u8 *)rtw_malloc(n);
-	if (!ptmpbuf)
-		return -1;
+	{
+		u32 alloc_sz = (n < 64) ? 64 : n;
+		ptmpbuf = (u8 *)rtw_zmalloc(alloc_sz);
+		if (!ptmpbuf)
+			return -1;
 
-	err = _sd_read(pintfhdl, addr, n, ptmpbuf);
-	if (!err)
-		_rtw_memcpy(pbuf, ptmpbuf, cnt);
+		err = _sd_read(pintfhdl, addr, n, ptmpbuf);
+		if (!err)
+			_rtw_memcpy(pbuf, ptmpbuf, cnt);
 
-	if (ptmpbuf)
-		rtw_mfree(ptmpbuf, n);
+		rtw_mfree(ptmpbuf, alloc_sz);
+	}
 
 	return err;
 }
@@ -842,16 +844,18 @@ s32 sdio_local_read(
 	}
 
 	n = RND4(cnt);
-	ptmpbuf = (u8 *)rtw_malloc(n);
-	if (!ptmpbuf)
-		return -1;
+	{
+		u32 alloc_sz = (n < 64) ? 64 : n;
+		ptmpbuf = (u8 *)rtw_zmalloc(alloc_sz);
+		if (!ptmpbuf)
+			return -1;
 
-	err = sd_read(pintfhdl, addr, n, ptmpbuf);
-	if (!err)
-		_rtw_memcpy(pbuf, ptmpbuf, cnt);
+		err = sd_read(pintfhdl, addr, n, ptmpbuf);
+		if (!err)
+			_rtw_memcpy(pbuf, ptmpbuf, cnt);
 
-	if (ptmpbuf)
-		rtw_mfree(ptmpbuf, n);
+		rtw_mfree(ptmpbuf, alloc_sz);
+	}
 
 	return err;
 }
@@ -890,16 +894,18 @@ s32 _sdio_local_write(
 		return err;
 	}
 
-	ptmpbuf = (u8 *)rtw_malloc(cnt);
-	if (!ptmpbuf)
-		return -1;
+	{
+		u32 alloc_sz = (cnt < 64) ? 64 : cnt;
+		ptmpbuf = (u8 *)rtw_zmalloc(alloc_sz);
+		if (!ptmpbuf)
+			return -1;
 
-	_rtw_memcpy(ptmpbuf, pbuf, cnt);
+		_rtw_memcpy(ptmpbuf, pbuf, cnt);
 
-	err = _sd_write(pintfhdl, addr, cnt, ptmpbuf);
+		err = _sd_write(pintfhdl, addr, cnt, ptmpbuf);
 
-	if (ptmpbuf)
-		rtw_mfree(ptmpbuf, cnt);
+		rtw_mfree(ptmpbuf, alloc_sz);
+	}
 
 	return err;
 }
@@ -938,16 +944,18 @@ s32 sdio_local_write(
 		return err;
 	}
 
-	ptmpbuf = (u8 *)rtw_malloc(cnt);
-	if (!ptmpbuf)
-		return -1;
+	{
+		u32 alloc_sz = (cnt < 64) ? 64 : cnt;
+		ptmpbuf = (u8 *)rtw_zmalloc(alloc_sz);
+		if (!ptmpbuf)
+			return -1;
 
-	_rtw_memcpy(ptmpbuf, pbuf, cnt);
+		_rtw_memcpy(ptmpbuf, pbuf, cnt);
 
-	err = sd_write(pintfhdl, addr, cnt, ptmpbuf);
+		err = sd_write(pintfhdl, addr, cnt, ptmpbuf);
 
-	if (ptmpbuf)
-		rtw_mfree(ptmpbuf, cnt);
+		rtw_mfree(ptmpbuf, alloc_sz);
+	}
 
 	return err;
 }
@@ -1650,6 +1658,7 @@ void sd_int_dpc(PADAPTER padapter)
 
 	if (pHalData->sdio_hisr & SDIO_HISR_RX_REQUEST) {
 		struct recv_buf *precvbuf;
+		int rx_loop = 0;
 
 		/* RTW_INFO("%s: RX Request, size=%d\n", __func__, phal->SdioRxFIFOSize); */
 		pHalData->sdio_hisr ^= SDIO_HISR_RX_REQUEST;
@@ -1659,33 +1668,49 @@ void sd_int_dpc(PADAPTER padapter)
 		do {
 			/* Sometimes rx length will be zero. driver need to use cmd53 read again. */
 			if (pHalData->SdioRxFIFOSize == 0) {
-				u8 data[4];
+				if (pHalData && pHalData->is_s9082) {
+					u8 hisr_data[6] = {0};
+					u32 cur_hisr;
 
-				_sdio_local_read(padapter, SDIO_REG_RX0_REQ_LEN, 4, data);
+					if (_sdio_local_read(padapter, SDIO_REG_HISR, 6, hisr_data))
+						break;
+					cur_hisr = s9082_permute32(le32_to_cpu(*(u32 *)hisr_data));
+					if (!(cur_hisr & SDIO_HISR_RX_REQUEST))
+						break;
+					pHalData->SdioRxFIFOSize = s9082_permute16(le16_to_cpu(*(u16 *)&hisr_data[4]));
+				} else {
+					u8 data[4] = {0};
 
-				if (pHalData && pHalData->is_s9082)
-					pHalData->SdioRxFIFOSize = s9082_permute16(le16_to_cpu(*(u16 *)data));
-				else
+					if (_sdio_local_read(padapter, SDIO_REG_RX0_REQ_LEN, 4, data))
+						break;
+
 					pHalData->SdioRxFIFOSize = le16_to_cpu(*(u16 *)data);
+				}
 			}
 
 			if (pHalData->SdioRxFIFOSize) {
-				precvbuf = sd_recv_rxfifo(padapter, pHalData->SdioRxFIFOSize);
+				u32 req_len = pHalData->SdioRxFIFOSize;
+				precvbuf = sd_recv_rxfifo(padapter, req_len);
 
 				pHalData->SdioRxFIFOSize = 0;
 
-				if (precvbuf)
+				if (precvbuf) {
+					u32 rxdw0 = le32_to_cpu(*(__le32 *)precvbuf->pdata);
+					u32 rxdw3 = le32_to_cpu(*((__le32 *)precvbuf->pdata + 3));
+					if (((rxdw0 & 0x3fff) == 0) && (((rxdw3 >> 14) & 0x3) == 0)) {
+						precvbuf->len = 0;
+						rtw_enqueue_recvbuf(precvbuf, &padapter->recvpriv.free_recv_buf_queue);
+						break;
+					}
 					sd_rxhandler(padapter, precvbuf);
-				else
+				} else
 					break;
 			} else
 				break;
 #ifdef CONFIG_SDIO_DISABLE_RXFIFO_POLLING_LOOP
 		} while (0);
 #else
-		}
-		while (1)
-			;
+		} while (++rx_loop < 64 && !RTW_CANNOT_RUN(padapter));
 #endif
 #endif
 
@@ -1695,12 +1720,13 @@ void sd_int_dpc(PADAPTER padapter)
 
 void sd_int_hdl(PADAPTER padapter)
 {
-	u8 data[6];
+	u8 data[6] = {0};
 	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
 	if (RTW_CANNOT_RUN(padapter))
 		return;
 
-	_sdio_local_read(padapter, SDIO_REG_HISR, 6, data);
+	if (_sdio_local_read(padapter, SDIO_REG_HISR, 6, data))
+		return;
 	if (pHalData && pHalData->is_s9082) {
 		pHalData->sdio_hisr = s9082_permute32(le32_to_cpu(*(u32 *)data));
 		pHalData->SdioRxFIFOSize = s9082_permute16(le16_to_cpu(*(u16 *)&data[4]));

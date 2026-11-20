@@ -172,6 +172,9 @@ void odm_tx_pwr_track_set_pwr88_e(void *dm_void, enum pwrtrack_method method,
 	struct dm_rf_calibration_struct *cali_info = &(dm->rf_calibrate_info);
 	struct _hal_rf_ *rf = &(dm->rf_table);
 
+	if (adapter && hal_data->is_s9082)
+		return;
+
 	if (*dm->mp_mode == true) {
 #if (DM_ODM_SUPPORT_TYPE & (ODM_WIN | ODM_CE))
 #if (DM_ODM_SUPPORT_TYPE & ODM_WIN)
@@ -1311,6 +1314,9 @@ void phy_iq_calibrate_8188e(void *dm_void, boolean is_recovery)
 		REG_OFDM_0_XC_TX_AFE, REG_OFDM_0_XD_TX_AFE,
 		REG_OFDM_0_RX_IQ_EXT_ANTA};
 
+	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082)
+		return;
+
 	if (is_recovery) {
 		RF_DBG(dm, DBG_RF_INIT, "%s: Return due to is_recovery!\n",
 		       __func__);
@@ -1433,6 +1439,9 @@ void phy_iq_calibrate_8188e(void *dm_void, boolean is_recovery)
 void phy_lc_calibrate_8188e(void *dm_void)
 {
 	struct dm_struct *dm = (struct dm_struct *)dm_void;
+
+	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082)
+		return;
 
 	_phy_lc_calibrate_8188e(dm, false);
 }

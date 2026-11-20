@@ -2568,9 +2568,11 @@ void InitBeaconParameters_8188e(_adapter *adapter)
 	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(adapter);
 
 	if (pHalData && pHalData->is_s9082) {
-		/* AlexELEC 0x6d6dc-0x6d6f8: bit-reversed BCN_CTRL (0x2620) and TBTT_PROHIBIT (0x0808) */
-		rtw_write16(adapter, REG_BCN_CTRL, 0x2620);
-		rtw_write16(adapter, REG_TBTT_PROHIBIT, 0x0808);
+		/* AlexELEC BeaconParameters_init (0x6d6dc-0x6d718): bit-reversed values */
+		rtw_write16(adapter, REG_BCN_CTRL, 0x0808);
+		rtw_write16(adapter, REG_TBTT_PROHIBIT, 0x2620);
+		rtw_write16(adapter, REG_DRVERLYINT, 0x40a0);
+		rtw_write16(adapter, REG_BCNTCFG, 0x66f0);
 		return;
 	}
 
@@ -3679,7 +3681,8 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 variable, u8 *val)
 			{
 #ifdef CONFIG_INTERRUPT_BASED_TXBCN
 #ifdef CONFIG_INTERRUPT_BASED_TXBCN_EARLY_INT
-				rtw_write8(Adapter, REG_DRVERLYINT, 0x05);/* restore early int time to 5ms	 */
+				rtw_write8(Adapter, REG_DRVERLYINT,
+					GET_HAL_DATA(Adapter)->is_s9082 ? s9082_bit_reverse8(0x05) : 0x05);/* restore early int time to 5ms */
 #if defined(CONFIG_USB_HCI)
 				UpdateInterruptMask8188EU(Adapter, _TRUE, 0, IMR_BCNDMAINT0_88E);
 #elif defined(CONFIG_SDIO_HCI)
@@ -3702,17 +3705,26 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 variable, u8 *val)
 #endif
 			}
 
-			rtw_write8(Adapter, REG_BCN_CTRL, DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_ATIM); /* disable atim wnd */
-			/* rtw_write8(Adapter,REG_BCN_CTRL, DIS_TSF_UDT | EN_BCN_FUNCTION); */
+			{
+				u8 bcn_val = DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_ATIM;
+				rtw_write8(Adapter, REG_BCN_CTRL,
+					GET_HAL_DATA(Adapter)->is_s9082 ? s9082_bit_reverse8(bcn_val) : bcn_val); /* disable atim wnd */
+			}
 		} else if (mode == _HW_STATE_ADHOC_) {
+			u8 bcn_val = DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_BCNQ_SUB;
+			u8 mbid_bit = BIT(3) | BIT(4);
 			/* Beacon is polled to TXBUF */
-			rtw_write16(Adapter, REG_CR, rtw_read16(Adapter, REG_CR) | BIT(8));
+			rtw_write16(Adapter, REG_CR, rtw_read16(Adapter, REG_CR) |
+				(GET_HAL_DATA(Adapter)->is_s9082 ? s9082_bit_reverse16(BIT(8)) : BIT(8)));
 
 			ResumeTxBeacon(Adapter);
-			rtw_write8(Adapter, REG_BCN_CTRL, DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_BCNQ_SUB);
+			rtw_write8(Adapter, REG_BCN_CTRL,
+				GET_HAL_DATA(Adapter)->is_s9082 ? s9082_bit_reverse8(bcn_val) : bcn_val);
 			/* BIT3 - If set 0, hw will clr bcnq when tx becon ok/fail or port 0 */
-			rtw_write8(Adapter, REG_MBID_NUM, rtw_read8(Adapter, REG_MBID_NUM) | BIT(3) | BIT(4));
+			rtw_write8(Adapter, REG_MBID_NUM, rtw_read8(Adapter, REG_MBID_NUM) |
+				(GET_HAL_DATA(Adapter)->is_s9082 ? s9082_bit_reverse8(mbid_bit) : mbid_bit));
 		} else if (mode == _HW_STATE_AP_) {
+			BOOLEAN s9082 = GET_HAL_DATA(Adapter)->is_s9082;
 #ifdef CONFIG_INTERRUPT_BASED_TXBCN
 #ifdef CONFIG_INTERRUPT_BASED_TXBCN_EARLY_INT
 #if defined(CONFIG_USB_HCI)
@@ -3732,46 +3744,57 @@ static void hw_var_set_opmode(PADAPTER Adapter, u8 variable, u8 *val)
 
 #endif /* CONFIG_INTERRUPT_BASED_TXBCN */
 
-			rtw_write8(Adapter, REG_BCN_CTRL, DIS_TSF_UDT | DIS_BCNQ_SUB);
+			rtw_write8(Adapter, REG_BCN_CTRL,
+				s9082 ? s9082_bit_reverse8(DIS_TSF_UDT | DIS_BCNQ_SUB) : (DIS_TSF_UDT | DIS_BCNQ_SUB));
 
 			/* Beacon is polled to TXBUF */
-			rtw_write32(Adapter, REG_CR, rtw_read32(Adapter, REG_CR) | BIT(8));
+			rtw_write32(Adapter, REG_CR, rtw_read32(Adapter, REG_CR) |
+				(s9082 ? s9082_bit_reverse32(BIT(8)) : BIT(8)));
 
 			/* enable to rx data frame */
 			rtw_write16(Adapter, REG_RXFLTMAP2, 0xFFFF);
 			/* enable to rx ps-poll */
-			rtw_write16(Adapter, REG_RXFLTMAP1, 0x0400);
+			rtw_write16(Adapter, REG_RXFLTMAP1, s9082 ? s9082_bit_reverse16(0x0400) : 0x0400);
 
 			/* Beacon Control related register for first time */
-			rtw_write8(Adapter, REG_BCNDMATIM, 0x02); /* 2ms			 */
-			rtw_write8(Adapter, REG_DRVERLYINT, 0x05);/* 5ms */
+			rtw_write8(Adapter, REG_BCNDMATIM, s9082 ? s9082_bit_reverse8(0x02) : 0x02); /* 2ms */
+			rtw_write8(Adapter, REG_DRVERLYINT, s9082 ? s9082_bit_reverse8(0x05) : 0x05);/* 5ms */
 			/* rtw_write8(Adapter, REG_BCN_MAX_ERR, 0xFF); */
-			rtw_write8(Adapter, REG_ATIMWND, 0x0c); /* 13ms */
+			rtw_write8(Adapter, REG_ATIMWND, s9082 ? s9082_bit_reverse8(0x0c) : 0x0c); /* 13ms */
 
 			rtw_write16(Adapter, REG_TSFTR_SYN_OFFSET, 0x7fff);/* +32767 (~32ms) */
 
 			/* reset TSF */
-			rtw_write8(Adapter, REG_DUAL_TSF_RST, BIT(0));
+			rtw_write8(Adapter, REG_DUAL_TSF_RST, s9082 ? s9082_bit_reverse8(BIT(0)) : BIT(0));
 
 			/* BIT3 - If set 0, hw will clr bcnq when tx becon ok/fail or port 0 */
-			rtw_write8(Adapter, REG_MBID_NUM, rtw_read8(Adapter, REG_MBID_NUM) | BIT(3) | BIT(4));
+			rtw_write8(Adapter, REG_MBID_NUM, rtw_read8(Adapter, REG_MBID_NUM) |
+				(s9082 ? s9082_bit_reverse8(BIT(3) | BIT(4)) : (BIT(3) | BIT(4))));
 
 			/* enable BCN0 Function for if1 */
 			/* don't enable update TSF0 for if1 (due to TSF update when beacon/probe rsp are received) */
 #if defined(CONFIG_INTERRUPT_BASED_TXBCN_BCN_OK_ERR)
-			rtw_write8(Adapter, REG_BCN_CTRL, (DIS_TSF_UDT| EN_BCN_FUNCTION | EN_TXBCN_RPT | DIS_BCNQ_SUB));
+			{
+				u8 bcn_ap = DIS_TSF_UDT | EN_BCN_FUNCTION | EN_TXBCN_RPT | DIS_BCNQ_SUB;
+				rtw_write8(Adapter, REG_BCN_CTRL, s9082 ? s9082_bit_reverse8(bcn_ap) : bcn_ap);
+			}
 #else
-			rtw_write8(Adapter, REG_BCN_CTRL, (DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_BCNQ_SUB));
+			{
+				u8 bcn_ap = DIS_TSF_UDT | EN_BCN_FUNCTION | DIS_BCNQ_SUB;
+				rtw_write8(Adapter, REG_BCN_CTRL, s9082 ? s9082_bit_reverse8(bcn_ap) : bcn_ap);
+			}
 #endif
 
 #ifdef CONFIG_CONCURRENT_MODE
 			if (!rtw_mi_buddy_check_mlmeinfo_state(Adapter, WIFI_FW_ASSOC_SUCCESS))
 				rtw_write8(Adapter, REG_BCN_CTRL_1,
-					rtw_read8(Adapter, REG_BCN_CTRL_1) & ~EN_BCN_FUNCTION);
+					rtw_read8(Adapter, REG_BCN_CTRL_1) &
+					~(s9082 ? s9082_bit_reverse8(EN_BCN_FUNCTION) : EN_BCN_FUNCTION));
 #endif
 
 			/* dis BCN1 ATIM  WND if if2 is station */
-			rtw_write8(Adapter, REG_BCN_CTRL_1, rtw_read8(Adapter, REG_BCN_CTRL_1) | DIS_ATIM);
+			rtw_write8(Adapter, REG_BCN_CTRL_1, rtw_read8(Adapter, REG_BCN_CTRL_1) |
+				(s9082 ? s9082_bit_reverse8(DIS_ATIM) : DIS_ATIM));
 #ifdef CONFIG_TSF_RESET_OFFLOAD
 			/* Reset TSF for STA+AP concurrent mode */
 			if (DEV_STA_LD_NUM(adapter_to_dvobj(Adapter))) {
@@ -4030,9 +4053,6 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		rtw_write16(adapter, REG_RETRY_LIMIT,
 			pHalData->is_s9082 ? s9082_bit_reverse16(val16) : val16);
 
-		if (GET_HAL_DATA(adapter)->is_s9082)
-			break;
-
 		while (rtw_get_passing_time_ms(start) < 2000
 		       && !RTW_CANNOT_RUN(adapter)
 		      ) {
@@ -4066,7 +4086,8 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 		retry_limit = RL_VAL_STA;
 		val16 = BIT_SRL(retry_limit) | BIT_LRL(retry_limit);
-		rtw_write16(adapter, REG_RETRY_LIMIT, val16);
+		rtw_write16(adapter, REG_RETRY_LIMIT,
+			pHalData->is_s9082 ? s9082_bit_reverse16(val16) : val16);
 	}
 	break;
 	case HW_VAR_RESP_SIFS: {

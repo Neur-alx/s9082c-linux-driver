@@ -3896,7 +3896,7 @@ void rtw_hal_rcr_set_chk_bssid(_adapter *adapter, u8 self_action)
 	#endif
 #endif /* CONFIG_MI_WITH_MBSSID_CAM */
 
-	if (hal_data->is_s9082)
+	if (hal_data->is_s9082 && self_action == MLME_STA_CONNECTING)
 		rcr_new &= ~RCR_CBSSID_BCN;
 
 	if (rcr == rcr_new)
@@ -12054,36 +12054,41 @@ static void hw_var_set_correct_tsf(_adapter *adapter, u8 mlme_state)
 #else /* !CONFIG_MI_WITH_MBSSID_CAM*/
 static void rtw_hal_correct_tsf(_adapter *padapter, u8 hw_port, u64 tsf)
 {
+	BOOLEAN is_s9082 = GET_HAL_DATA(padapter)->is_s9082;
+	u8 en_bcn_bit = is_s9082 ? s9082_bit_reverse8(EN_BCN_FUNCTION) : EN_BCN_FUNCTION;
+	u32 tsf_lo = is_s9082 ? s9082_bit_reverse32((u32)tsf) : (u32)tsf;
+	u32 tsf_hi = is_s9082 ? s9082_bit_reverse32((u32)(tsf >> 32)) : (u32)(tsf >> 32);
+
 	if (hw_port == HW_PORT0) {
 		/*disable related TSF function*/
-		rtw_write8(padapter, REG_BCN_CTRL, rtw_read8(padapter, REG_BCN_CTRL) & (~EN_BCN_FUNCTION));
+		rtw_write8(padapter, REG_BCN_CTRL, rtw_read8(padapter, REG_BCN_CTRL) & (~en_bcn_bit));
 #if defined(CONFIG_RTL8192F)
 		rtw_write16(padapter, REG_WLAN_ACT_MASK_CTRL_1, rtw_read16(padapter,
 					REG_WLAN_ACT_MASK_CTRL_1) & ~EN_PORT_0_FUNCTION);
 #endif
 
-		rtw_write32(padapter, REG_TSFTR, tsf);
-		rtw_write32(padapter, REG_TSFTR + 4, tsf >> 32);
+		rtw_write32(padapter, REG_TSFTR, tsf_lo);
+		rtw_write32(padapter, REG_TSFTR + 4, tsf_hi);
 
 		/*enable related TSF function*/
-		rtw_write8(padapter, REG_BCN_CTRL, rtw_read8(padapter, REG_BCN_CTRL) | EN_BCN_FUNCTION);
+		rtw_write8(padapter, REG_BCN_CTRL, rtw_read8(padapter, REG_BCN_CTRL) | en_bcn_bit);
 #if defined(CONFIG_RTL8192F)
 		rtw_write16(padapter, REG_WLAN_ACT_MASK_CTRL_1, rtw_read16(padapter,
 					REG_WLAN_ACT_MASK_CTRL_1) | EN_PORT_0_FUNCTION);
 #endif
 	} else if (hw_port == HW_PORT1) {
 		/*disable related TSF function*/
-		rtw_write8(padapter, REG_BCN_CTRL_1, rtw_read8(padapter, REG_BCN_CTRL_1) & (~EN_BCN_FUNCTION));
+		rtw_write8(padapter, REG_BCN_CTRL_1, rtw_read8(padapter, REG_BCN_CTRL_1) & (~en_bcn_bit));
 #if defined(CONFIG_RTL8192F)
 		rtw_write16(padapter, REG_WLAN_ACT_MASK_CTRL_1, rtw_read16(padapter,
 					REG_WLAN_ACT_MASK_CTRL_1) & ~EN_PORT_1_FUNCTION);
 #endif
 
-		rtw_write32(padapter, REG_TSFTR1, tsf);
-		rtw_write32(padapter, REG_TSFTR1 + 4, tsf >> 32);
+		rtw_write32(padapter, REG_TSFTR1, tsf_lo);
+		rtw_write32(padapter, REG_TSFTR1 + 4, tsf_hi);
 
 		/*enable related TSF function*/
-		rtw_write8(padapter, REG_BCN_CTRL_1, rtw_read8(padapter, REG_BCN_CTRL_1) | EN_BCN_FUNCTION);
+		rtw_write8(padapter, REG_BCN_CTRL_1, rtw_read8(padapter, REG_BCN_CTRL_1) | en_bcn_bit);
 #if defined(CONFIG_RTL8192F)
 		rtw_write16(padapter, REG_WLAN_ACT_MASK_CTRL_1, rtw_read16(padapter,
 					REG_WLAN_ACT_MASK_CTRL_1) | EN_PORT_1_FUNCTION);
@@ -12645,17 +12650,14 @@ u8 SetHwReg(_adapter *adapter, u8 variable, u8 *val)
 		break;
 #endif
 	case HW_VAR_ENABLE_RX_BAR:
-		if (*val == _TRUE) {
-			/* enable RX BAR */
+		{
+			u16 bar_bit = hal_data->is_s9082 ? s9082_bit_reverse16(BIT(8)) : BIT(8);
 			u16 val16 = rtw_read16(adapter, REG_RXFLTMAP1);
 
-			val16 |= BIT(8);
-			rtw_write16(adapter, REG_RXFLTMAP1, val16);
-		} else {
-			/* disable RX BAR */
-			u16 val16 = rtw_read16(adapter, REG_RXFLTMAP1);
-
-			val16 &= (~BIT(8));
+			if (*val == _TRUE)
+				val16 |= bar_bit;
+			else
+				val16 &= (~bar_bit);
 			rtw_write16(adapter, REG_RXFLTMAP1, val16);
 		}
 		RTW_INFO("[HW_VAR_ENABLE_RX_BAR] 0x%02X=0x%02X\n",
@@ -15074,6 +15076,18 @@ u8 hal_largest_bw(_adapter *adapter, u8 in_bw)
 #ifndef CONFIG_HAS_TX_BEACON_PAUSE
 void ResumeTxBeacon(_adapter *padapter)
 {
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u8 cur;
+
+		rtw_write8(padapter, REG_FWHW_TXQ_CTRL + 2,
+			rtw_read8(padapter, REG_FWHW_TXQ_CTRL + 2) | s9082_bit_reverse8(BIT(6)));
+		rtw_write8(padapter, REG_TBTT_PROHIBIT + 1, s9082_bit_reverse8(TBTT_PROHIBIT_HOLD_TIME & 0xFF));
+		cur = s9082_bit_reverse8(rtw_read8(padapter, REG_TBTT_PROHIBIT + 2));
+		cur = (cur & 0xF0) | (TBTT_PROHIBIT_HOLD_TIME >> 8);
+		rtw_write8(padapter, REG_TBTT_PROHIBIT + 2, s9082_bit_reverse8(cur));
+		return;
+	}
+
 	rtw_write8(padapter, REG_FWHW_TXQ_CTRL + 2,
 		rtw_read8(padapter, REG_FWHW_TXQ_CTRL + 2) | BIT(6));
 
@@ -15091,6 +15105,18 @@ void ResumeTxBeacon(_adapter *padapter)
 
 void StopTxBeacon(_adapter *padapter)
 {
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u8 cur;
+
+		rtw_write8(padapter, REG_FWHW_TXQ_CTRL + 2,
+			rtw_read8(padapter, REG_FWHW_TXQ_CTRL + 2) & (~s9082_bit_reverse8(BIT6)));
+		rtw_write8(padapter, REG_TBTT_PROHIBIT + 1, s9082_bit_reverse8(TBTT_PROHIBIT_HOLD_TIME_STOP_BCN & 0xFF));
+		cur = s9082_bit_reverse8(rtw_read8(padapter, REG_TBTT_PROHIBIT + 2));
+		cur = (cur & 0xF0) | (TBTT_PROHIBIT_HOLD_TIME_STOP_BCN >> 8);
+		rtw_write8(padapter, REG_TBTT_PROHIBIT + 2, s9082_bit_reverse8(cur));
+		return;
+	}
+
 	rtw_write8(padapter, REG_FWHW_TXQ_CTRL + 2,
 		rtw_read8(padapter, REG_FWHW_TXQ_CTRL + 2) & (~BIT6));
 

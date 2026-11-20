@@ -10463,6 +10463,9 @@ int rtw_cfg80211_ndev_res_register(_adapter *adapter)
 #if !defined(RTW_SINGLE_WIPHY)
 	int ret = _FAIL;
 
+	/* Populate wiphy bands/HT caps and perm_addr before wiphy_register() so nl80211 userspace sees complete caps on hotplug */
+	rtw_cfg80211_init_wiphy(adapter);
+
 	if (rtw_wiphy_register(adapter_to_wiphy(adapter)) < 0) {
 		RTW_INFO("%s rtw_wiphy_register fail for if%d\n", __func__, (adapter->iface_id + 1));
 		goto exit;
@@ -10518,6 +10521,7 @@ int rtw_cfg80211_dev_res_register(struct dvobj_priv *dvobj)
 	int ret = _FAIL;
 
 #if defined(RTW_SINGLE_WIPHY)
+	rtw_cfg80211_init_wiphy(dvobj_get_primary_adapter(dvobj));
 	if (rtw_wiphy_register(dvobj_to_wiphy(dvobj)) != 0)
 		return ret;
 

@@ -29,6 +29,7 @@
 
 #include "mp_precomp.h"
 #include "phydm_precomp.h"
+#include "hal8188e_s9082c_tables.h"
 
 #ifdef PHYDM_SUPPORT_CCKPD
 #ifdef PHYDM_COMPILE_CCKPD_TYPE1
@@ -36,11 +37,15 @@ static void phydm_write_cck_pd_type1(void *dm_void, u8 cca_th)
 {
 	struct dm_struct *dm = (struct dm_struct *)dm_void;
 	struct phydm_cckpd_struct *cckpd_t = &dm->dm_cckpd_table;
+	u8 hw_cca_th = cca_th;
 
 	PHYDM_DBG(dm, DBG_CCKPD, "[%s] cck_cca_th=((0x%x))\n",
 		  __func__, cca_th);
 
-	odm_write_1byte(dm, R_0xa0a, cca_th);
+	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082)
+		hw_cca_th = s9082_bit_reverse8(cca_th);
+
+	odm_write_1byte(dm, R_0xa0a, hw_cca_th);
 	cckpd_t->cur_cck_cca_thres = cca_th;
 }
 

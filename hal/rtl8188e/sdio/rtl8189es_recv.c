@@ -260,7 +260,8 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 			pkt_offset = rx_report_sz + pattrib->shift_sz + pattrib->pkt_len;
 
 			if ((pattrib->pkt_len == 0) || (pkt_offset > transfer_len)) {
-				RTW_INFO("%s()-%d: RX Warning!,pkt_len==0 or pkt_offset(%d)> transfoer_len(%d)\n", __FUNCTION__, __LINE__, pkt_offset, transfer_len);
+				if (printk_ratelimit())
+					RTW_INFO("%s()-%d: RX Warning!,pkt_len==0 or pkt_offset(%d)> transfoer_len(%d)\n", __FUNCTION__, __LINE__, pkt_offset, transfer_len);
 				rtw_free_recvframe(precvframe, &precvpriv->free_recv_queue);
 				break;
 			}

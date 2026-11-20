@@ -82,7 +82,8 @@ void rtw_hal_update_iqk_fw_offload_cap(_adapter *adapter)
 		#ifdef CONFIG_LPS
 		LPS_Leave(adapter, "SWITCH_IQK_OFFLOAD");
 		#endif
-		halrf_iqk_trigger(p_dm_odm, _FALSE);
+		if (!hal->is_s9082)
+			halrf_iqk_trigger(p_dm_odm, _FALSE);
 	}
 }
 
@@ -110,6 +111,9 @@ static void rtw_phydm_iqk_trigger_dbg(_adapter *adapter, bool recovery, bool cle
 {
 	struct dm_struct *p_dm_odm = adapter_to_phydm(adapter);
 
+	if (GET_HAL_DATA(adapter)->is_s9082)
+		return;
+
 #if ((RTL8822B_SUPPORT == 1) || (RTL8821C_SUPPORT == 1) || (RTL8814B_SUPPORT == 1) || (RTL8822C_SUPPORT == 1))
 		halrf_segment_iqk_trigger(p_dm_odm, clear, segment);
 #else
@@ -119,6 +123,9 @@ static void rtw_phydm_iqk_trigger_dbg(_adapter *adapter, bool recovery, bool cle
 static void rtw_phydm_lck_trigger(_adapter *adapter)
 {
 	struct dm_struct *p_dm_odm = adapter_to_phydm(adapter);
+
+	if (GET_HAL_DATA(adapter)->is_s9082)
+		return;
 
 	halrf_lck_trigger(p_dm_odm);
 }
@@ -1501,6 +1508,17 @@ void rtw_phydm_init(_adapter *adapter)
 	rtw_phydm_config_trx_path(adapter);
 	init_phydm_info(adapter);
 	odm_dm_init(phydm);
+	if (hal_data->is_s9082) {
+		/* SmartChip S9082C uses RF8353 (no IQK/LCK/thermal tracking) and bit-reversed BB regs */
+		phydm->rf_table.rf_supportability = 0;
+		phydm->support_ability &= ~(ODM_BB_ENV_MONITOR |
+					    ODM_BB_ADAPTIVITY |
+					    ODM_BB_DYNAMIC_TXPWR |
+					    ODM_BB_PWR_TRAIN |
+					    ODM_BB_ANT_DIV |
+					    ODM_BB_PATH_DIV |
+					    ODM_BB_PRIMARY_CCA);
+	}
 #ifdef CONFIG_CUSTOMER01_SMART_ANTENNA
 	phydm_pathb_q_matrix_rotate_en(phydm);
 #endif
@@ -1564,6 +1582,9 @@ void rtw_phydm_lps_pg_hdl(_adapter *adapter, struct sta_info *sta, bool in_lpspg
 static u8 _rtw_phydm_rfk_condition_check(_adapter *adapter, u8 is_scaning, u8 ifs_linked)
 {
 	u8 rfk_allowed = _TRUE;
+
+	if (GET_HAL_DATA(adapter)->is_s9082)
+		return _FALSE;
 
 	#ifdef CONFIG_SKIP_RFK_IN_DM
 	rfk_allowed = _FALSE;

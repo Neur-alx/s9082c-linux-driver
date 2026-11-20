@@ -118,7 +118,7 @@ CONFIG_RTW_SDIO_PM_KEEP_POWER = y
 ###################### MP HW TX MODE FOR VHT #######################
 CONFIG_MP_VHT_HW_TX_MODE = n
 ###################### Platform Related #######################
-CONFIG_PLATFORM_I386_PC = n
+CONFIG_PLATFORM_I386_PC = y
 CONFIG_PLATFORM_ANDROID_X86 = n
 CONFIG_PLATFORM_ANDROID_INTEL_X86 = n
 CONFIG_PLATFORM_JB_X86 = n
@@ -1294,7 +1294,7 @@ ccflags-y += -DCONFIG_RADIO_WORK
 
 ifeq ($(CONFIG_PLATFORM_I386_PC), y)
 ccflags-y += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT
-SUBARCH := $(shell uname -m | sed -e s/i.86/i386/)
+SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ | sed -e s/aarch64/arm64/)
 ARCH ?= $(SUBARCH)
 CROSS_COMPILE ?=
 KVER  := $(shell uname -r)
@@ -1423,7 +1423,7 @@ KSRC:= /usr/src/Mstar_kernel/3.1.10/
 endif
 
 ifeq ($(CONFIG_PLATFORM_ANDROID_X86), y)
-SUBARCH := $(shell uname -m | sed -e s/i.86/i386/)
+SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ | sed -e s/aarch64/arm64/)
 ARCH := $(SUBARCH)
 CROSS_COMPILE := /media/DATA-2/android-x86/ics-x86_20120130/prebuilt/linux-x86/toolchain/i686-unknown-linux-gnu-4.2.1/bin/i686-unknown-linux-gnu-
 KSRC := /media/DATA-2/android-x86/ics-x86_20120130/out/target/product/generic_x86/obj/kernel
@@ -1445,7 +1445,7 @@ endif
 ifeq ($(CONFIG_PLATFORM_JB_X86), y)
 #ccflags-y += -DCONFIG_CONCURRENT_MODE
 ccflags-y += -DCONFIG_IOCTL_CFG80211 -DRTW_USE_CFG80211_STA_EVENT
-SUBARCH := $(shell uname -m | sed -e s/i.86/i386/)
+SUBARCH := $(shell uname -m | sed -e s/i.86/i386/ | sed -e s/aarch64/arm64/)
 ARCH := $(SUBARCH)
 CROSS_COMPILE := /home/android_sdk/android-x86_JB/prebuilts/gcc/linux-x86/x86/i686-linux-android-4.7/bin/i686-linux-android-
 KSRC := /home/android_sdk/android-x86_JB/out/target/product/x86/obj/kernel/
