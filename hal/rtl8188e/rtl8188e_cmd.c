@@ -17,6 +17,7 @@
 #include <drv_types.h>
 #include <rtl8188e_hal.h>
 #include "hal_com_h2c.h"
+#include "hal8188e_s9082c_tables.h"
 
 #define CONFIG_H2C_EF
 
@@ -35,7 +36,8 @@ static u8 _is_fw_read_cmd_down(_adapter *padapter, u8 msgbox_num)
 	/* RTW_INFO(" _is_fw_read_cmd_down ,reg_1cc(%x),msg_box(%d)...\n",rtw_read8(padapter,REG_HMETFR),msgbox_num); */
 
 	do {
-		valid = rtw_read8(padapter, REG_HMETFR) & BIT(msgbox_num);
+		u8 hmetfr_mask = GET_HAL_DATA(padapter)->is_s9082 ? BIT(7 - msgbox_num) : BIT(msgbox_num);
+		valid = rtw_read8(padapter, REG_HMETFR) & hmetfr_mask;
 		if (0 == valid)
 			read_down = _TRUE;
 		else
@@ -106,23 +108,37 @@ s32 FillH2CCmd_88E(PADAPTER padapter, u8 ElementID, u32 CmdLen, u8 *pCmdBuffer)
 		}
 		/* Write Ext command */
 		msgbox_ex_addr = REG_HMEBOX_EXT_0 + (h2c_box_num * RTL88E_EX_MESSAGE_BOX_SIZE);
+		if (pHalData->is_s9082) {
+			if (CmdLen > 3) {
+				for (cmd_idx = 0; cmd_idx < RTL88E_EX_MESSAGE_BOX_SIZE; cmd_idx++)
+					rtw_write8(padapter, msgbox_ex_addr + cmd_idx,
+						s9082_bit_reverse8(*((u8 *)(&h2c_cmd_ex) + cmd_idx)));
+			}
+		} else {
 #ifdef CONFIG_H2C_EF
-		for (cmd_idx = 0; cmd_idx < RTL88E_EX_MESSAGE_BOX_SIZE; cmd_idx++)
-			rtw_write8(padapter, msgbox_ex_addr + cmd_idx, *((u8 *)(&h2c_cmd_ex) + cmd_idx));
+			for (cmd_idx = 0; cmd_idx < RTL88E_EX_MESSAGE_BOX_SIZE; cmd_idx++)
+				rtw_write8(padapter, msgbox_ex_addr + cmd_idx, *((u8 *)(&h2c_cmd_ex) + cmd_idx));
 #else
-		h2c_cmd_ex = le32_to_cpu(h2c_cmd_ex);
-		rtw_write32(padapter, msgbox_ex_addr, h2c_cmd_ex);
+			h2c_cmd_ex = le32_to_cpu(h2c_cmd_ex);
+			rtw_write32(padapter, msgbox_ex_addr, h2c_cmd_ex);
 #endif
+		}
 
 		/* Write command */
 		msgbox_addr = REG_HMEBOX_0 + (h2c_box_num * RTL88E_MESSAGE_BOX_SIZE);
+		if (pHalData->is_s9082) {
+			for (cmd_idx = 0; cmd_idx < RTL88E_MESSAGE_BOX_SIZE; cmd_idx++)
+				rtw_write8(padapter, msgbox_addr + cmd_idx,
+					s9082_bit_reverse8(*((u8 *)(&h2c_cmd) + cmd_idx)));
+		} else {
 #ifdef CONFIG_H2C_EF
-		for (cmd_idx = 0; cmd_idx < RTL88E_MESSAGE_BOX_SIZE; cmd_idx++)
-			rtw_write8(padapter, msgbox_addr + cmd_idx, *((u8 *)(&h2c_cmd) + cmd_idx));
+			for (cmd_idx = 0; cmd_idx < RTL88E_MESSAGE_BOX_SIZE; cmd_idx++)
+				rtw_write8(padapter, msgbox_addr + cmd_idx, *((u8 *)(&h2c_cmd) + cmd_idx));
 #else
-		h2c_cmd = le32_to_cpu(h2c_cmd);
-		rtw_write32(padapter, msgbox_addr, h2c_cmd);
+			h2c_cmd = le32_to_cpu(h2c_cmd);
+			rtw_write32(padapter, msgbox_addr, h2c_cmd);
 #endif
+		}
 
 
 		/*	RTW_INFO("MSG_BOX:%d,CmdLen(%d), reg:0x%x =>h2c_cmd:0x%x, reg:0x%x =>h2c_cmd_ex:0x%x ..\n" */
@@ -269,31 +285,35 @@ void rtl8188e_set_FwJoinBssReport_cmd(PADAPTER padapter, u8 mstatus)
 
 	if (mstatus == 1) {
 		u8 bcn_ctrl = rtw_read8(padapter, REG_BCN_CTRL);
+		u8 cr1_bcn_bit = pHalData->is_s9082 ? BIT7 : BIT0;
+		u8 txq_bcn_bit = pHalData->is_s9082 ? BIT1 : BIT6;
 
 		/* We should set AID, correct TSF, HW seq enable before set JoinBssReport to Fw in 88/92C. */
 		/* Suggested by filen. Added by tynli. */
-		rtw_write16(padapter, REG_BCN_PSR_RPT, (0xC000 | pmlmeinfo->aid));
+		rtw_write16(padapter, REG_BCN_PSR_RPT,
+			pHalData->is_s9082 ? s9082_bit_reverse16(0xC000 | pmlmeinfo->aid) : (0xC000 | pmlmeinfo->aid));
 		/* Hw sequende enable by dedault. 2010.06.23. by tynli. */
 		/* rtw_write16(padapter, REG_NQOS_SEQ, ((pmlmeext->mgnt_seq+100)&0xFFF)); */
 		/* rtw_write8(padapter, REG_HWSEQ_CTRL, 0xFF); */
 
 		/* Set REG_CR bit 8. DMA beacon by SW. */
 		rtw_write8(padapter,  REG_CR + 1,
-			rtw_read8(padapter,  REG_CR + 1) | BIT0);
+			rtw_read8(padapter,  REG_CR + 1) | cr1_bcn_bit);
 
 		/* Disable Hw protection for a time which revserd for Hw sending beacon. */
 		/* Fix download reserved page packet fail that access collision with the protection time. */
 		/* 2010.05.11. Added by tynli. */
-		rtw_write8(padapter, REG_BCN_CTRL, (bcn_ctrl & (~EN_BCN_FUNCTION)) | DIS_TSF_UDT);
+		rtw_write8(padapter, REG_BCN_CTRL,
+			pHalData->is_s9082 ? ((bcn_ctrl & (~0x10)) | 0x08) : ((bcn_ctrl & (~EN_BCN_FUNCTION)) | DIS_TSF_UDT));
 
 		RegFwHwTxQCtrl = rtw_read8(padapter, REG_FWHW_TXQ_CTRL + 2);
-		if (RegFwHwTxQCtrl & BIT6) {
+		if (RegFwHwTxQCtrl & txq_bcn_bit) {
 			RTW_INFO("HalDownloadRSVDPage(): There is an Adapter is sending beacon.\n");
 			bSendBeacon = _TRUE;
 		}
 
 		/* Set FWHW_TXQ_CTRL 0x422[6]=0 to tell Hw the packet is not a real beacon frame. */
-		RegFwHwTxQCtrl &= (~BIT6);
+		RegFwHwTxQCtrl &= (~txq_bcn_bit);
 		rtw_write8(padapter, REG_FWHW_TXQ_CTRL + 2, RegFwHwTxQCtrl);
 
 		/* Clear beacon valid check bit. */
@@ -338,7 +358,7 @@ void rtl8188e_set_FwJoinBssReport_cmd(PADAPTER padapter, u8 mstatus)
 		/* the beacon cannot be sent by HW. */
 		/* 2010.06.23. Added by tynli. */
 		if (bSendBeacon) {
-			RegFwHwTxQCtrl |= BIT6;
+			RegFwHwTxQCtrl |= txq_bcn_bit;
 			rtw_write8(padapter, REG_FWHW_TXQ_CTRL + 2, RegFwHwTxQCtrl);
 		}
 
@@ -357,7 +377,7 @@ void rtl8188e_set_FwJoinBssReport_cmd(PADAPTER padapter, u8 mstatus)
 		{
 			/* Clear CR[8] or beacon packet will not be send to TxBuf anymore. */
 			rtw_write8(padapter,  REG_CR + 1,
-				rtw_read8(padapter,  REG_CR + 1) & (~BIT0));
+				rtw_read8(padapter,  REG_CR + 1) & (~cr1_bcn_bit));
 		}
 #endif /* !CONFIG_PCI_HCI */
 	}

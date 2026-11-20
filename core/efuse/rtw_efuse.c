@@ -2261,6 +2261,11 @@ efuse_OneByteRead(
 	/* RTW_INFO("===> EFUSE_OneByteRead(), addr = %x\n", addr); */
 	/* RTW_INFO("===> EFUSE_OneByteRead() start, 0x34 = 0x%X\n", rtw_read32(pAdapter, EFUSE_TEST)); */
 
+	if (pHalData && pHalData->is_s9082) {
+		*data = 0xff;
+		return _FALSE;
+	}
+
 	if (bPseudoTest) {
 		bResult = Efuse_Read1ByteFromFakeContent(pAdapter, addr, data);
 		return bResult;
@@ -2320,10 +2325,13 @@ efuse_OneByteWrite(
 		u8			data,
 		BOOLEAN		bPseudoTest)
 {
+	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(pAdapter);
 	u8	tmpidx = 0;
 	u8	bResult = _FALSE;
 	u32 efuseValue = 0;
-	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(pAdapter);
+
+	if (pHalData && pHalData->is_s9082)
+		return _FALSE;
 
 	/* RTW_INFO("===> EFUSE_OneByteWrite(), addr = %x data=%x\n", addr, data); */
 	/* RTW_INFO("===> EFUSE_OneByteWrite() start, 0x34 = 0x%X\n", rtw_read32(pAdapter, EFUSE_TEST)); */

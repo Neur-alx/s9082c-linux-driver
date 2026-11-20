@@ -1,3 +1,4 @@
+#include "hal8188e_s9082c_tables.h"
 /******************************************************************************
  *
  * Copyright(c) 2007 - 2017 Realtek Corporation.
@@ -1055,8 +1056,14 @@ odm_read_and_config_mp_8188e_agc_tab(struct dm_struct *dm)
 	u32	i = 0;
 	u8	c_cond;
 	boolean	is_matched = true, is_skipped = false;
+	HAL_DATA_TYPE *hal_data = dm->adapter ? GET_HAL_DATA(((PADAPTER)dm->adapter)) : NULL;
 	u32	array_len = sizeof(array_mp_8188e_agc_tab) / sizeof(u32);
-	u32	*array = array_mp_8188e_agc_tab;
+	const u32	*array = array_mp_8188e_agc_tab;
+
+	if (hal_data && hal_data->is_s9082) {
+		array_len = array_mp_s9082c_agc_tab_size;
+		array = array_mp_s9082c_agc_tab;
+	}
 
 	u32	v1 = 0, v2 = 0, pre_v1 = 0, pre_v2 = 0;
 
@@ -1671,8 +1678,14 @@ odm_read_and_config_mp_8188e_phy_reg(struct dm_struct *dm)
 	u32	i = 0;
 	u8	c_cond;
 	boolean	is_matched = true, is_skipped = false;
+	HAL_DATA_TYPE *hal_data = dm->adapter ? GET_HAL_DATA(((PADAPTER)dm->adapter)) : NULL;
 	u32	array_len = sizeof(array_mp_8188e_phy_reg) / sizeof(u32);
-	u32	*array = array_mp_8188e_phy_reg;
+	const u32	*array = array_mp_8188e_phy_reg;
+
+	if (hal_data && hal_data->is_s9082) {
+		array_len = array_mp_s9082c_phy_reg_size;
+		array = array_mp_s9082c_phy_reg;
+	}
 
 	u32	v1 = 0, v2 = 0, pre_v1 = 0, pre_v2 = 0;
 

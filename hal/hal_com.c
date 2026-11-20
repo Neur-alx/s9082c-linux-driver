@@ -18,6 +18,7 @@
 #include "hal_com_h2c.h"
 
 #include "hal_data.h"
+#include "hal8188e_s9082c_tables.h"
 
 #ifdef RTW_HALMAC
 #include "../../hal/hal_halmac.h"
@@ -2334,14 +2335,22 @@ static void rtw_hal_get_msr(_adapter *adapter, u8 *net_type)
 				adapter->hw_port, net_type);
 #else /* !RTW_HALMAC */
 	switch (adapter->hw_port) {
-	case HW_PORT0:
+	case HW_PORT0: {
+		u8 msr = rtw_read8(adapter, MSR);
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			msr = s9082_bit_reverse8(msr);
 		/*REG_CR - BIT[17:16]-Network Type for port 1*/
-		*net_type = rtw_read8(adapter, MSR) & 0x03;
+		*net_type = msr & 0x03;
 		break;
-	case HW_PORT1:
+	}
+	case HW_PORT1: {
+		u8 msr = rtw_read8(adapter, MSR);
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			msr = s9082_bit_reverse8(msr);
 		/*REG_CR - BIT[19:18]-Network Type for port 1*/
-		*net_type = (rtw_read8(adapter, MSR) & 0x0C) >> 2;
+		*net_type = (msr & 0x0C) >> 2;
 		break;
+	}
 #if defined(CONFIG_RTL8814A)
 	case HW_PORT2:
 		/*REG_CR_EXT- BIT[1:0]-Network Type for port 2*/
@@ -2392,14 +2401,22 @@ static void rtw_hal_set_msr(_adapter *adapter, u8 net_type)
 		net_type = rtw_hal_net_type_decision(adapter, net_type);
 		#endif
 		/*REG_CR - BIT[17:16]-Network Type for port 0*/
-		val8 = rtw_read8(adapter, MSR) & 0x0C;
-		val8 |= net_type;
+		val8 = rtw_read8(adapter, MSR);
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			val8 = s9082_bit_reverse8(val8);
+		val8 = (val8 & 0x0C) | net_type;
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			val8 = s9082_bit_reverse8(val8);
 		rtw_write8(adapter, MSR, val8);
 		break;
 	case HW_PORT1:
 		/*REG_CR - BIT[19:18]-Network Type for port 1*/
-		val8 = rtw_read8(adapter, MSR) & 0x03;
-		val8 |= net_type << 2;
+		val8 = rtw_read8(adapter, MSR);
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			val8 = s9082_bit_reverse8(val8);
+		val8 = (val8 & 0x03) | (net_type << 2);
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			val8 = s9082_bit_reverse8(val8);
 		rtw_write8(adapter, MSR, val8);
 		break;
 #if defined(CONFIG_RTL8814A)
@@ -2450,27 +2467,38 @@ u32 rtw_sec_read_cam(_adapter *adapter, u8 addr)
 
 	_enter_critical_mutex(mutex, NULL);
 
-	rtw_write32(adapter, REG_CAMCMD, CAM_POLLINIG | addr);
+	{
+		bool is_s9082 = GET_HAL_DATA(adapter)->is_s9082;
+		u32 camcmd = CAM_POLLINIG | addr;
 
-	start = rtw_get_current_time();
-	while (1) {
-		if (rtw_is_surprise_removed(adapter)) {
-			sr = 1;
-			break;
+		rtw_write32(adapter, REG_CAMCMD, is_s9082 ? s9082_bit_reverse32(camcmd) : camcmd);
+
+		start = rtw_get_current_time();
+		while (1) {
+			u32 cmd_val;
+			if (rtw_is_surprise_removed(adapter)) {
+				sr = 1;
+				break;
+			}
+
+			cnt++;
+			cmd_val = rtw_read32(adapter, REG_CAMCMD);
+			if (is_s9082)
+				cmd_val = s9082_bit_reverse32(cmd_val);
+			if (0 == (cmd_val & CAM_POLLINIG))
+				break;
+
+			if (rtw_get_passing_time_ms(start) > SEC_CAM_ACCESS_TIMEOUT_MS) {
+				timeout = 1;
+				break;
+			}
 		}
+		end = rtw_get_current_time();
 
-		cnt++;
-		if (0 == (rtw_read32(adapter, REG_CAMCMD) & CAM_POLLINIG))
-			break;
-
-		if (rtw_get_passing_time_ms(start) > SEC_CAM_ACCESS_TIMEOUT_MS) {
-			timeout = 1;
-			break;
-		}
+		rdata = rtw_read32(adapter, REG_CAMREAD);
+		if (is_s9082)
+			rdata = s9082_bit_reverse32(rdata);
 	}
-	end = rtw_get_current_time();
-
-	rdata = rtw_read32(adapter, REG_CAMREAD);
 
 	_exit_critical_mutex(mutex, NULL);
 
@@ -2492,26 +2520,35 @@ void rtw_sec_write_cam(_adapter *adapter, u8 addr, u32 wdata)
 
 	_enter_critical_mutex(mutex, NULL);
 
-	rtw_write32(adapter, REG_CAMWRITE, wdata);
-	rtw_write32(adapter, REG_CAMCMD, CAM_POLLINIG | CAM_WRITE | addr);
+	{
+		bool is_s9082 = GET_HAL_DATA(adapter)->is_s9082;
+		u32 camcmd = CAM_POLLINIG | CAM_WRITE | addr;
 
-	start = rtw_get_current_time();
-	while (1) {
-		if (rtw_is_surprise_removed(adapter)) {
-			sr = 1;
-			break;
+		rtw_write32(adapter, REG_CAMWRITE, is_s9082 ? s9082_bit_reverse32(wdata) : wdata);
+		rtw_write32(adapter, REG_CAMCMD, is_s9082 ? s9082_bit_reverse32(camcmd) : camcmd);
+
+		start = rtw_get_current_time();
+		while (1) {
+			u32 cmd_val;
+			if (rtw_is_surprise_removed(adapter)) {
+				sr = 1;
+				break;
+			}
+
+			cnt++;
+			cmd_val = rtw_read32(adapter, REG_CAMCMD);
+			if (is_s9082)
+				cmd_val = s9082_bit_reverse32(cmd_val);
+			if (0 == (cmd_val & CAM_POLLINIG))
+				break;
+
+			if (rtw_get_passing_time_ms(start) > SEC_CAM_ACCESS_TIMEOUT_MS) {
+				timeout = 1;
+				break;
+			}
 		}
-
-		cnt++;
-		if (0 == (rtw_read32(adapter, REG_CAMCMD) & CAM_POLLINIG))
-			break;
-
-		if (rtw_get_passing_time_ms(start) > SEC_CAM_ACCESS_TIMEOUT_MS) {
-			timeout = 1;
-			break;
-		}
+		end = rtw_get_current_time();
 	}
-	end = rtw_get_current_time();
 
 	_exit_critical_mutex(mutex, NULL);
 
@@ -3468,8 +3505,14 @@ static void rtw_hal_set_bssid(_adapter *adapter, u8 *val)
 	u8 idx = 0;
 	u32 reg_bssid = _get_bssid_reg(hw_port);
 
-	for (idx = 0 ; idx < ETH_ALEN; idx++)
-		rtw_write8(adapter, (reg_bssid + idx), val[idx]);
+	if (GET_HAL_DATA(adapter)->is_s9082) {
+		rtw_write32(adapter, reg_bssid, *(u32 *)val);
+		rtw_write8(adapter, reg_bssid + 4, s9082_bit_reverse8(val[4]));
+		rtw_write8(adapter, reg_bssid + 5, s9082_bit_reverse8(val[5]));
+	} else {
+		for (idx = 0 ; idx < ETH_ALEN; idx++)
+			rtw_write8(adapter, (reg_bssid + idx), val[idx]);
+	}
 #endif /* !RTW_HALMAC */
 
 	RTW_INFO("%s "ADPT_FMT"- hw port -%d BSSID: "MAC_FMT"\n",
@@ -3485,18 +3528,21 @@ static void rtw_hal_set_tsf_update(_adapter *adapter, u8 en)
 	rtw_hal_get_hwreg(adapter, HW_VAR_BCN_CTRL_ADDR, (u8 *)&addr);
 	if (addr) {
 		rtw_enter_protsel_port(adapter, get_hw_port(adapter));
-		val8 = rtw_read8(adapter, addr);
-		if (en && (val8 & DIS_TSF_UDT)) {
-			rtw_write8(adapter, addr, val8 & ~DIS_TSF_UDT);
-			#ifdef DBG_TSF_UPDATE
-			RTW_INFO("port%u("ADPT_FMT") enable TSF update\n", adapter->hw_port, ADPT_ARG(adapter));
-			#endif
-		}
-		if (!en && !(val8 & DIS_TSF_UDT)) {
-			rtw_write8(adapter, addr, val8 | DIS_TSF_UDT);
-			#ifdef DBG_TSF_UPDATE
-			RTW_INFO("port%u("ADPT_FMT") disable TSF update\n", adapter->hw_port, ADPT_ARG(adapter));
-			#endif
+		{
+			u8 dis_tsf_bit = GET_HAL_DATA(adapter)->is_s9082 ? s9082_bit_reverse8(DIS_TSF_UDT) : DIS_TSF_UDT;
+			val8 = rtw_read8(adapter, addr);
+			if (en && (val8 & dis_tsf_bit)) {
+				rtw_write8(adapter, addr, val8 & ~dis_tsf_bit);
+				#ifdef DBG_TSF_UPDATE
+				RTW_INFO("port%u("ADPT_FMT") enable TSF update\n", adapter->hw_port, ADPT_ARG(adapter));
+				#endif
+			}
+			if (!en && !(val8 & dis_tsf_bit)) {
+				rtw_write8(adapter, addr, val8 | dis_tsf_bit);
+				#ifdef DBG_TSF_UPDATE
+				RTW_INFO("port%u("ADPT_FMT") disable TSF update\n", adapter->hw_port, ADPT_ARG(adapter));
+				#endif
+			}
 		}
 		rtw_leave_protsel_port(adapter);
 	} else {
@@ -3674,11 +3720,14 @@ void rtw_hal_periodic_tsf_update_end_timer_hdl(void *ctx)
 static inline u8 hw_var_rcr_config(_adapter *adapter, u32 rcr)
 {
 	int err;
+	u32 hw_rcr;
 
 #ifdef CONFIG_CUSTOMER_ALIBABA_GENERAL
 	rcr = RCR_AAP | RCR_APM | RCR_AM | RCR_AB | RCR_APWRMGT | RCR_ADF | RCR_AMF | RCR_APP_PHYST_RXFF | RCR_APP_MIC | RCR_APP_ICV;
 #endif
-	err = rtw_write32(adapter, REG_RCR, rcr);
+
+	hw_rcr = GET_HAL_DATA(adapter)->is_s9082 ? s9082_bit_reverse32(rcr) : rcr;
+	err = rtw_write32(adapter, REG_RCR, hw_rcr);
 	if (err == _SUCCESS)
 		GET_HAL_DATA(adapter)->ReceiveConfig = rcr;
 	return err;
@@ -3689,6 +3738,9 @@ static inline u8 hw_var_rcr_get(_adapter *adapter, u32 *rcr)
 	u32 v32;
 
 	v32 = rtw_read32(adapter, REG_RCR);
+	if (GET_HAL_DATA(adapter)->is_s9082)
+		v32 = s9082_bit_reverse32(v32);
+
 	if (rcr)
 		*rcr = v32;
 	GET_HAL_DATA(adapter)->ReceiveConfig = v32;
@@ -3834,7 +3886,7 @@ void rtw_hal_rcr_set_chk_bssid(_adapter *adapter, u8 self_action)
 	else if ((MSTATE_AP_NUM(&mstate) && adapter->registrypriv.wifi_spec) /* for 11n Logo 4.2.31/4.2.32 */
 		|| MSTATE_MESH_NUM(&mstate)
 	)
-		rcr_new &= ~RCR_CBSSID_BCN;	
+		rcr_new &= ~RCR_CBSSID_BCN;
 	else
 		rcr_new |= RCR_CBSSID_BCN;
 
@@ -3843,6 +3895,9 @@ void rtw_hal_rcr_set_chk_bssid(_adapter *adapter, u8 self_action)
 		rcr_new &= ~RCR_CBSSID_BCN;
 	#endif
 #endif /* CONFIG_MI_WITH_MBSSID_CAM */
+
+	if (hal_data->is_s9082)
+		rcr_new &= ~RCR_CBSSID_BCN;
 
 	if (rcr == rcr_new)
 		return;
@@ -11444,12 +11499,16 @@ static void hw_var_set_bcn_func(_adapter *adapter, u8 enable)
 #endif
 		bcn_ctrl_reg = REG_BCN_CTRL;
 
-	if (enable)
-		rtw_write8(adapter, bcn_ctrl_reg, (EN_BCN_FUNCTION | EN_TXBCN_RPT));
-	else {
+	if (enable) {
+		u8 val8 = EN_BCN_FUNCTION | EN_TXBCN_RPT;
+		rtw_write8(adapter, bcn_ctrl_reg,
+			GET_HAL_DATA(adapter)->is_s9082 ? s9082_bit_reverse8(val8) : val8);
+	} else {
 		u8 val8;
 
 		val8 = rtw_read8(adapter, bcn_ctrl_reg);
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			val8 = s9082_bit_reverse8(val8);
 		val8 &= ~(EN_BCN_FUNCTION | EN_TXBCN_RPT);
 
 #ifdef CONFIG_BT_COEXIST
@@ -11460,6 +11519,8 @@ static void hw_var_set_bcn_func(_adapter *adapter, u8 enable)
 		}
 #endif
 
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			val8 = s9082_bit_reverse8(val8);
 		rtw_write8(adapter, bcn_ctrl_reg, val8);
 	}
 
@@ -11510,7 +11571,8 @@ static void hw_var_set_mlme_disconnect(_adapter *adapter)
 #ifdef CONFIG_CONCURRENT_MODE
 	if (adapter->hw_port == HW_PORT1) {
 		/* reset TSF1 */
-		rtw_write8(adapter, REG_DUAL_TSF_RST, BIT(1));
+		rtw_write8(adapter, REG_DUAL_TSF_RST,
+			GET_HAL_DATA(adapter)->is_s9082 ? s9082_bit_reverse8(BIT(1)) : BIT(1));
 
 		/* disable update TSF1 */
 		rtw_iface_disable_tsf_update(adapter);
@@ -11521,14 +11583,15 @@ static void hw_var_set_mlme_disconnect(_adapter *adapter)
 		) {
 			/* disable Port1's beacon function */
 			val8 = rtw_read8(adapter, REG_BCN_CTRL_1);
-			val8 &= ~EN_BCN_FUNCTION;
+			val8 &= ~(GET_HAL_DATA(adapter)->is_s9082 ? s9082_bit_reverse8(EN_BCN_FUNCTION) : EN_BCN_FUNCTION);
 			rtw_write8(adapter, REG_BCN_CTRL_1, val8);
 		}
 	} else
 #endif
 	{
 		/* reset TSF */
-		rtw_write8(adapter, REG_DUAL_TSF_RST, BIT(0));
+		rtw_write8(adapter, REG_DUAL_TSF_RST,
+			GET_HAL_DATA(adapter)->is_s9082 ? s9082_bit_reverse8(BIT(0)) : BIT(0));
 
 		/* disable update TSF */
 		rtw_iface_disable_tsf_update(adapter);
@@ -11552,6 +11615,9 @@ static void hw_var_set_mlme_sitesurvey(_adapter *adapter, u8 enable)
 	/* not to receive data frame */
 	value_rxfltmap2 = 0;
 #endif
+
+	if (hal_data->is_s9082)
+		value_rxfltmap2 = 0xFFFF;
 
 	if (enable) { /* under sitesurvey */
 		/*
@@ -11586,7 +11652,7 @@ static void hw_var_set_mlme_sitesurvey(_adapter *adapter, u8 enable)
 		* 3. doesn't enable TSF update &  buddy TSF right now to avoid HW conflict
 		*	 so, we enable TSF update when rx first BCN after sitesurvey done
 		*/
-		if (rtw_mi_check_fwstate(adapter, _FW_LINKED | WIFI_AP_STATE | WIFI_MESH_STATE)) {
+		if (hal_data->is_s9082 || rtw_mi_check_fwstate(adapter, _FW_LINKED | WIFI_AP_STATE | WIFI_MESH_STATE)) {
 			/* enable to rx data frame */
 			rtw_write16(adapter, REG_RXFLTMAP2, 0xFFFF);
 		}
@@ -11649,7 +11715,8 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 			ResumeTxBeacon(adapter);
 
 			/* reset TSF 1/2 after ResumeTxBeacon */
-			rtw_write8(adapter, REG_DUAL_TSF_RST, BIT(1) | BIT(0));
+			rtw_write8(adapter, REG_DUAL_TSF_RST,
+				hal_data->is_s9082 ? s9082_bit_reverse8(BIT(1) | BIT(0)) : (BIT(1) | BIT(0)));
 		}
 
 	} else if (type == 2) {
@@ -11664,12 +11731,13 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 			ResumeTxBeacon(adapter);
 
 			/* reset TSF 1/2 after ResumeTxBeacon */
-			rtw_write8(adapter, REG_DUAL_TSF_RST, BIT(1) | BIT(0));
+			rtw_write8(adapter, REG_DUAL_TSF_RST,
+				hal_data->is_s9082 ? s9082_bit_reverse8(BIT(1) | BIT(0)) : (BIT(1) | BIT(0)));
 		}
 	}
 
 	val16 = BIT_SRL(RetryLimit) | BIT_LRL(RetryLimit);
-	rtw_write16(adapter, REG_RETRY_LIMIT, val16);
+	rtw_write16(adapter, REG_RETRY_LIMIT, hal_data->is_s9082 ? s9082_bit_reverse16(val16) : val16);
 #else /* !CONFIG_CONCURRENT_MODE */
 	if (type == 0) { /* prepare to join */
 		/* enable to rx data frame.Accept all data frame */
@@ -11693,7 +11761,7 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 	}
 
 	val16 = BIT_SRL(RetryLimit) | BIT_LRL(RetryLimit);
-	rtw_write16(adapter, REG_RETRY_LIMIT, val16);
+	rtw_write16(adapter, REG_RETRY_LIMIT, hal_data->is_s9082 ? s9082_bit_reverse16(val16) : val16);
 #endif /* !CONFIG_CONCURRENT_MODE */
 }
 #endif
@@ -12152,9 +12220,15 @@ u64 rtw_hal_get_tsftr_by_port(_adapter *adapter, u8 port)
 			goto exit;
 		}
 
-		tsftr = rtw_read32(adapter, addr + 4);
-		tsftr = tsftr << 32;
-		tsftr |= rtw_read32(adapter, addr);
+		{
+			u32 hi = rtw_read32(adapter, addr + 4);
+			u32 lo = rtw_read32(adapter, addr);
+			if (GET_HAL_DATA(adapter)->is_s9082) {
+				hi = s9082_bit_reverse32(hi);
+				lo = s9082_bit_reverse32(lo);
+			}
+			tsftr = ((u64)hi << 32) | lo;
+		}
 
 		break;
 	}
@@ -12316,13 +12390,20 @@ void rtw_var_set_basic_rate(PADAPTER padapter, u8 *val) {
 
 	RTW_INFO("HW_VAR_BASIC_RATE: %#x->%#x->%#x\n", input_b, masked, ioted);
 
-	/* Set RRSR rate table. */
+	/* Set RRSR rate table (rtw_phydm_set_rrsr reverses via s9082c_write_bbreg). */
 	temp_RRSR = rtw_read32(padapter, REG_RRSR);
-	temp_RRSR &=0xFFFF0000;
-	temp_RRSR |=BrateCfg;
+	if (pHalData->is_s9082)
+		temp_RRSR = s9082_bit_reverse32(temp_RRSR);
+	temp_RRSR &= 0xFFFF0000;
+	temp_RRSR |= BrateCfg;
 	rtw_phydm_set_rrsr(padapter, temp_RRSR, TRUE);
 
-	rtw_write8(padapter, REG_RRSR + 2, rtw_read8(padapter, REG_RRSR + 2) & 0xf0);
+	if (pHalData->is_s9082) {
+		u8 rrsr2 = s9082_bit_reverse8(rtw_read8(padapter, REG_RRSR + 2));
+		rtw_write8(padapter, REG_RRSR + 2, s9082_bit_reverse8(rrsr2 & 0xf0));
+	} else {
+		rtw_write8(padapter, REG_RRSR + 2, rtw_read8(padapter, REG_RRSR + 2) & 0xf0);
+	}
 
 	#if defined(CONFIG_RTL8188E)
 	rtw_hal_set_hwreg(padapter, HW_VAR_INIT_RTS_RATE, (u8 *)&BrateCfg);
@@ -12410,7 +12491,8 @@ u8 SetHwReg(_adapter *adapter, u8 variable, u8 *val)
 				brate_cfg = (brate_cfg >> 1);
 				rate_index++;
 			}
-			rtw_write8(adapter, REG_INIRTS_RATE_SEL, rate_index);
+			rtw_write8(adapter, REG_INIRTS_RATE_SEL,
+				hal_data->is_s9082 ? s9082_bit_reverse8(rate_index) : rate_index);
 		} else
 			rtw_warn_on(1);
 	}
@@ -12420,6 +12502,8 @@ u8 SetHwReg(_adapter *adapter, u8 variable, u8 *val)
 		u16 reg_scr;
 
 		reg_scr = reg_scr_ori = rtw_read16(adapter, REG_SECCFG);
+		if (hal_data->is_s9082)
+			reg_scr = reg_scr_ori = s9082_bit_reverse16(reg_scr_ori);
 		reg_scr |= (SCR_CHK_KEYID | SCR_RxDecEnable | SCR_TxEncEnable);
 
 		if (_rtw_camctl_chk_cap(adapter, SEC_CAP_CHK_BMC))
@@ -12429,13 +12513,16 @@ u8 SetHwReg(_adapter *adapter, u8 variable, u8 *val)
 			reg_scr |= SCR_NoSKMC;
 
 		if (reg_scr != reg_scr_ori)
-			rtw_write16(adapter, REG_SECCFG, reg_scr);
+			rtw_write16(adapter, REG_SECCFG,
+				hal_data->is_s9082 ? s9082_bit_reverse16(reg_scr) : reg_scr);
 	}
 		break;
 	case HW_VAR_SEC_DK_CFG: {
 		struct security_priv *sec = &adapter->securitypriv;
 		u8 reg_scr = rtw_read8(adapter, REG_SECCFG);
 
+		if (hal_data->is_s9082)
+			reg_scr = s9082_bit_reverse8(reg_scr);
 		if (val) { /* Enable default key related setting */
 			reg_scr |= SCR_TXBCUSEDK;
 			if (sec->dot11AuthAlgrthm != dot11AuthAlgrthm_8021X)
@@ -12443,7 +12530,8 @@ u8 SetHwReg(_adapter *adapter, u8 variable, u8 *val)
 		} else /* Disable default key related setting */
 			reg_scr &= ~(SCR_RXBCUSEDK | SCR_TXBCUSEDK | SCR_RxUseDK | SCR_TxUseDK);
 
-		rtw_write8(adapter, REG_SECCFG, reg_scr);
+		rtw_write8(adapter, REG_SECCFG,
+			hal_data->is_s9082 ? s9082_bit_reverse8(reg_scr) : reg_scr);
 	}
 		break;
 
@@ -12616,11 +12704,12 @@ u8 SetHwReg(_adapter *adapter, u8 variable, u8 *val)
 		#ifdef RTW_HALMAC
 			rtw_halmac_set_rts_full_bw(adapter_to_dvobj(adapter), (*val));
 		#else
-			u8 temp;
-			if(*val)
-				temp = (( rtw_read8(adapter, REG_INIRTS_RATE_SEL)) | BIT5 );
+			u8 temp = rtw_read8(adapter, REG_INIRTS_RATE_SEL);
+			u8 bit5 = hal_data->is_s9082 ? s9082_bit_reverse8(BIT5) : BIT5;
+			if (*val)
+				temp |= bit5;
 			else
-				temp = (( rtw_read8(adapter, REG_INIRTS_RATE_SEL)) & (~BIT5));
+				temp &= ~bit5;
 			rtw_write8(adapter, REG_INIRTS_RATE_SEL, temp);
 			/*RTW_INFO("HW_VAR_SET_RTS_BW	val=%u REG480=0x%x\n", *val, rtw_read8(adapter, REG_INIRTS_RATE_SEL));*/
 		#endif

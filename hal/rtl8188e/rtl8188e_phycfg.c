@@ -16,6 +16,7 @@
 
 #include <drv_types.h>
 #include <rtl8188e_hal.h>
+#include "hal8188e_s9082c_tables.h"
 
 
 /*---------------------------Define Local Constant---------------------------*/
@@ -761,6 +762,9 @@ s32 PHY_MACConfig8188E(PADAPTER Adapter)
 	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(Adapter);
 	u16		val = 0;
 
+	if (pHalData->is_s9082)
+		return s9082c_mac_config(Adapter);
+
 	/*  */
 	/* Config MAC */
 	/*  */
@@ -926,6 +930,9 @@ PHY_BBConfig8188E(
 	u8	TmpU1B = 0;
 	u8	value8;
 
+	if (pHalData->is_s9082)
+		return s9082c_bb_config(Adapter);
+
 	phy_InitBBRFRegisterDefinition(Adapter);
 
 
@@ -992,6 +999,9 @@ PHY_RFConfig8188E(
 )
 {
 	int		rtStatus = _SUCCESS;
+
+	if (GET_HAL_DATA(Adapter)->is_s9082)
+		return s9082c_rf8353_config(Adapter);
 
 	/*  */
 	/* RF config */

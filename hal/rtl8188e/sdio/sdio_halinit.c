@@ -16,6 +16,7 @@
 
 #include <drv_types.h>
 #include <rtl8188e_hal.h>
+#include "hal8188e_s9082c_tables.h"
 #include "hal_com_h2c.h"
 #ifndef CONFIG_SDIO_HCI
 	#error "CONFIG_SDIO_HCI shall be on!\n"
@@ -94,9 +95,15 @@ static void rtl8188es_interface_configure(PADAPTER padapter)
 	BOOLEAN		bWiFiConfig	= pregistrypriv->wifi_spec;
 
 
-	pdvobjpriv->RtOutPipe[0] = WLAN_TX_HIQ_DEVICE_ID;
-	pdvobjpriv->RtOutPipe[1] = WLAN_TX_MIQ_DEVICE_ID;
-	pdvobjpriv->RtOutPipe[2] = WLAN_TX_LOQ_DEVICE_ID;
+	if (pHalData->is_s9082) {
+		pdvobjpriv->RtOutPipe[0] = WLAN_TX_LOQ_DEVICE_ID;
+		pdvobjpriv->RtOutPipe[1] = WLAN_TX_HIQ_DEVICE_ID;
+		pdvobjpriv->RtOutPipe[2] = WLAN_TX_MIQ_DEVICE_ID;
+	} else {
+		pdvobjpriv->RtOutPipe[0] = WLAN_TX_HIQ_DEVICE_ID;
+		pdvobjpriv->RtOutPipe[1] = WLAN_TX_MIQ_DEVICE_ID;
+		pdvobjpriv->RtOutPipe[2] = WLAN_TX_LOQ_DEVICE_ID;
+	}
 
 	if (bWiFiConfig)
 		pHalData->OutEpNumber = 2;
@@ -128,6 +135,24 @@ static void rtl8188es_interface_configure(PADAPTER padapter)
  *	_SUCCESS	enable success
  *	_FAIL		enable fail
  */
+static WLAN_PWR_CFG s9082c_card_enable_flow[] = {
+	/* CARDDIS TO CARDEMU */
+	{0x2086, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, PWR_BASEADDR_SDIO, PWR_CMD_WRITE, 0x08, 0x00},
+	{0x2086, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, PWR_BASEADDR_SDIO, PWR_CMD_POLLING, 0x04, 0x04},
+	{0x4005, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0x18, 0x00},
+
+	/* CARDEMU TO ACT */
+	{0x4006, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_POLLING, 0x40, 0x40},
+	{0x4002, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0xC0, 0x00},
+	{0x4026, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0x01, 0x01},
+	{0x4005, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0x01, 0x00},
+	{0x4005, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0x18, 0x00},
+	{0x4005, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0x80, 0x80},
+	{0x4005, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_POLLING, 0x80, 0x00},
+	{0x4023, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, PWR_BASEADDR_MAC, PWR_CMD_WRITE, 0x08, 0x00},
+	{0xFFFF, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_ALL_MSK, 0, PWR_CMD_END, 0, 0}
+};
+
 static u8 _CardEnable(PADAPTER padapter)
 {
 	u8 bMacPwrCtrlOn;
@@ -155,7 +180,10 @@ static u8 _CardEnable(PADAPTER padapter)
 		rtw_write8(padapter, 0x4, val8);
 #endif /* CONFIG_PLATFORM_SPRD */
 
-		ret = HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, Rtl8188E_NIC_ENABLE_FLOW);
+		if (GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082)
+			ret = HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, s9082c_card_enable_flow);
+		else
+			ret = HalPwrSeqCmdParsing(padapter, PWR_CUT_ALL_MSK, PWR_FAB_ALL_MSK, PWR_INTF_SDIO_MSK, Rtl8188E_NIC_ENABLE_FLOW);
 		if (ret == _SUCCESS) {
 			u8 bMacPwrCtrlOn = _TRUE;
 			rtw_hal_set_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
@@ -204,13 +232,10 @@ static u32 _InitPowerOn_8188ES(PADAPTER padapter)
 	value16 |= EnPDN; /* Enable HW power down and RF on */
 	rtw_write16(padapter, REG_APS_FSMCO, value16);
 
-
 	/* Enable MAC DMA/WMAC/SCHEDULE/SEC block */
 	value16 = rtw_read16(padapter, REG_CR);
 	value16 |= (HCI_TXDMA_EN | HCI_RXDMA_EN | TXDMA_EN | RXDMA_EN
 		    | PROTOCOL_EN | SCHEDULE_EN | ENSEC | CALTMR_EN);
-	/* for SDIO - Set CR bit10 to enable 32k calibration. Suggested by SD1 Gimmy. Added by tynli. 2011.08.31. */
-
 	rtw_write16(padapter, REG_CR, value16);
 
 	/* Enable CMD53 R/W Operation
@@ -241,6 +266,10 @@ static void hal_poweroff_8188es(PADAPTER padapter)
 		return;
 	}
 	RTW_INFO("=>%s\n", __FUNCTION__);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		RTW_INFO("=>%s is_s9082: skip power down to avoid deadlock\n", __FUNCTION__);
+		return;
+	}
 
 
 	/* Stop Tx Report Timer. 0x4EC[Bit1]=b'0 */
@@ -333,7 +362,10 @@ static void hal_poweroff_8188es(PADAPTER padapter)
 
 	/* RSV_CTRL 0x1C[7:0]=0x0E */
 	/* lock ISO/CLK/Power control register */
-	rtw_write8(padapter, REG_RSV_CTRL, 0x0E);
+	if (GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082)
+		rtw_write8(padapter, REG_RSV_CTRL, 0x00);
+	else
+		rtw_write8(padapter, REG_RSV_CTRL, 0x0E);
 
 	GET_HAL_DATA(padapter)->bFWReady = _FALSE;
 	bMacPwrCtrlOn = _FALSE;
@@ -419,17 +451,20 @@ static void _InitQueueReservedPage(PADAPTER padapter)
 
 static void _InitTxBufferBoundary(PADAPTER padapter, u8 txpktbuf_bndy)
 {
-	struct registry_priv *pregistrypriv = &padapter->registrypriv;
-	/* HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter); */
-
-	/* u16	txdmactrl; */
-
-	rtw_write8(padapter, REG_BCNQ_BDNY, txpktbuf_bndy);
-	rtw_write8(padapter, REG_MGQ_BDNY, txpktbuf_bndy);
-	rtw_write8(padapter, REG_WMAC_LBK_BF_HD, txpktbuf_bndy);
-	rtw_write8(padapter, REG_TRXFF_BNDY, txpktbuf_bndy);
-	rtw_write8(padapter, REG_TDECTRL + 1, txpktbuf_bndy);
-
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* AlexELEC 0x6e0e4-0x6e130: 0x1f is bit-reversed 0xf8 */
+		rtw_write8(padapter, REG_BCNQ_BDNY, 0x1f);
+		rtw_write8(padapter, REG_MGQ_BDNY, 0x1f);
+		rtw_write8(padapter, REG_WMAC_LBK_BF_HD, 0x1f);
+		rtw_write8(padapter, REG_TRXFF_BNDY, 0x1f);
+		rtw_write8(padapter, REG_TDECTRL + 1, 0xf8);
+	} else {
+		rtw_write8(padapter, REG_BCNQ_BDNY, txpktbuf_bndy);
+		rtw_write8(padapter, REG_MGQ_BDNY, txpktbuf_bndy);
+		rtw_write8(padapter, REG_WMAC_LBK_BF_HD, txpktbuf_bndy);
+		rtw_write8(padapter, REG_TRXFF_BNDY, txpktbuf_bndy);
+		rtw_write8(padapter, REG_TDECTRL + 1, txpktbuf_bndy);
+	}
 }
 
 static void
@@ -607,7 +642,12 @@ static void _InitPageBoundary(PADAPTER padapter)
 
 static void _InitDriverInfoSize(PADAPTER padapter, u8 drvInfoSize)
 {
-	rtw_write8(padapter, REG_RX_DRVINFO_SZ, drvInfoSize);
+	PHAL_DATA_TYPE pHalData = GET_HAL_DATA(padapter);
+
+	if (pHalData && pHalData->is_s9082)
+		rtw_write8(padapter, REG_RX_DRVINFO_SZ, 0x20);
+	else
+		rtw_write8(padapter, REG_RX_DRVINFO_SZ, drvInfoSize);
 }
 
 static void _InitNetworkType(PADAPTER padapter)
@@ -641,7 +681,10 @@ static void _InitWMACSetting(PADAPTER padapter)
 	/* 2010.09.08 hpfan */
 	/* Since ADF is removed from RCR, ps-poll will not be indicate to driver, */
 	/* RxFilterMap should mask ps-poll to gurantee AP mode can rx ps-poll. */
-	value16 = 0x400;
+	if (GET_HAL_DATA(padapter)->is_s9082)
+		value16 = 0x2000;
+	else
+		value16 = 0x400;
 	rtw_write16(padapter, REG_RXFLTMAP1, value16);
 
 	/* Accept all management frames */
@@ -667,43 +710,71 @@ static void _InitAdaptiveCtrl(PADAPTER padapter)
 	/* m_spIoBase->rtw_write8(REG_CFEND_TH, 0x1); */
 
 	/* SIFS (used in NAV) */
-	value16 = _SPEC_SIFS_CCK(0x10) | _SPEC_SIFS_OFDM(0x10);
-	rtw_write16(padapter, REG_SPEC_SIFS, value16);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		rtw_write16(padapter, 0x0428, 0x0808);
+		rtw_write16(padapter, 0x042a, 0x0c0c);
+	} else {
+		value16 = _SPEC_SIFS_CCK(0x10) | _SPEC_SIFS_OFDM(0x10);
+		rtw_write16(padapter, REG_SPEC_SIFS, value16);
+	}
 
 	/* Retry Limit */
 	value16 = BIT_LRL(RL_VAL_STA) | BIT_SRL(RL_VAL_STA);
-	rtw_write16(padapter, REG_RETRY_LIMIT, value16);
+	rtw_write16(padapter, REG_RETRY_LIMIT,
+		GET_HAL_DATA(padapter)->is_s9082 ? s9082_bit_reverse16(value16) : value16);
 }
 
 static void _InitEDCA(PADAPTER padapter)
 {
-	/* Set Spec SIFS (used in NAV) */
-	rtw_write16(padapter, REG_SPEC_SIFS, 0x100a);
-	rtw_write16(padapter, REG_MAC_SPEC_SIFS, 0x100a);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* AlexELEC 0x6d458: bit-reversed SIFS and EDCA parameters */
+		rtw_write16(padapter, REG_SPEC_SIFS, 0x0850);
+		rtw_write16(padapter, REG_MAC_SPEC_SIFS, 0x0850);
+		rtw_write16(padapter, REG_SIFS_CTX, 0x0850);
+		rtw_write16(padapter, REG_SIFS_TRX, 0x0850);
 
-	/* Set SIFS for CCK */
-	rtw_write16(padapter, REG_SIFS_CTX, 0x100a);
+		rtw_write32(padapter, REG_EDCA_BE_PARAM, 0x007a25d4);
+		rtw_write32(padapter, REG_EDCA_BK_PARAM, 0x000025f2);
+		rtw_write32(padapter, REG_EDCA_VI_PARAM, 0x007ac524);
+		rtw_write32(padapter, REG_EDCA_VO_PARAM, 0x00f44564);
+	} else {
+		/* Set Spec SIFS (used in NAV) */
+		rtw_write16(padapter, REG_SPEC_SIFS, 0x100a);
+		rtw_write16(padapter, REG_MAC_SPEC_SIFS, 0x100a);
 
-	/* Set SIFS for OFDM */
-	rtw_write16(padapter, REG_SIFS_TRX, 0x100a);
+		/* Set SIFS for CCK */
+		rtw_write16(padapter, REG_SIFS_CTX, 0x100a);
 
-	/* TXOP */
-	rtw_write32(padapter, REG_EDCA_BE_PARAM, 0x005EA42B);
-	rtw_write32(padapter, REG_EDCA_BK_PARAM, 0x0000A44F);
-	rtw_write32(padapter, REG_EDCA_VI_PARAM, 0x005EA324);
-	rtw_write32(padapter, REG_EDCA_VO_PARAM, 0x002FA226);
+		/* Set SIFS for OFDM */
+		rtw_write16(padapter, REG_SIFS_TRX, 0x100a);
+
+		/* TXOP */
+		rtw_write32(padapter, REG_EDCA_BE_PARAM, 0x005EA42B);
+		rtw_write32(padapter, REG_EDCA_BK_PARAM, 0x0000A44F);
+		rtw_write32(padapter, REG_EDCA_VI_PARAM, 0x005EA324);
+		rtw_write32(padapter, REG_EDCA_VO_PARAM, 0x002FA226);
+	}
 }
 
 static void _InitRetryFunction(PADAPTER padapter)
 {
 	u8	value8;
 
-	value8 = rtw_read8(padapter, REG_FWHW_TXQ_CTRL);
-	value8 |= EN_AMPDU_RTY_NEW;
-	rtw_write8(padapter, REG_FWHW_TXQ_CTRL, value8);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* AlexELEC 0x6d578: reversed EN_AMPDU_RTY_NEW (0x01) and ACKTO (0x02) */
+		value8 = rtw_read8(padapter, REG_FWHW_TXQ_CTRL);
+		value8 |= 0x01;
+		rtw_write8(padapter, REG_FWHW_TXQ_CTRL, value8);
 
-	/* Set ACK timeout */
-	rtw_write8(padapter, REG_ACKTO, 0x40);
+		rtw_write8(padapter, REG_ACKTO, 0x02);
+	} else {
+		value8 = rtw_read8(padapter, REG_FWHW_TXQ_CTRL);
+		value8 |= EN_AMPDU_RTY_NEW;
+		rtw_write8(padapter, REG_FWHW_TXQ_CTRL, value8);
+
+		/* Set ACK timeout */
+		rtw_write8(padapter, REG_ACKTO, 0x40);
+	}
 }
 
 static void HalRxAggr8188ESdio(PADAPTER padapter)
@@ -729,8 +800,14 @@ static void HalRxAggr8188ESdio(PADAPTER padapter)
 		valueDMAPageCount = 0x24;
 	}
 
-	rtw_write8(padapter, REG_RXDMA_AGG_PG_TH + 1, valueDMATimeout);
-	rtw_write8(padapter, REG_RXDMA_AGG_PG_TH, valueDMAPageCount);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* AlexELEC 0x6d60c-0x6d624: 0x60 and 0x24 */
+		rtw_write8(padapter, REG_RXDMA_AGG_PG_TH + 1, 0x60);
+		rtw_write8(padapter, REG_RXDMA_AGG_PG_TH, 0x24);
+	} else {
+		rtw_write8(padapter, REG_RXDMA_AGG_PG_TH + 1, valueDMATimeout);
+		rtw_write8(padapter, REG_RXDMA_AGG_PG_TH, valueDMAPageCount);
+	}
 #endif
 }
 
@@ -744,7 +821,10 @@ static void sdio_AggSettingRxUpdate(PADAPTER padapter)
 	/* pHalData = GET_HAL_DATA(padapter); */
 
 	valueDMA = rtw_read8(padapter, REG_TRXDMA_CTRL);
-	valueDMA |= RXDMA_AGG_EN;
+	if (GET_HAL_DATA(padapter)->is_s9082)
+		valueDMA |= 0x20; /* AlexELEC 0x6d638: reversed RXDMA_AGG_EN */
+	else
+		valueDMA |= RXDMA_AGG_EN;
 	rtw_write8(padapter, REG_TRXDMA_CTRL, valueDMA);
 
 #if 0
@@ -853,12 +933,19 @@ static void _BBTurnOnBlock(PADAPTER padapter)
 static void _InitPABias(PADAPTER padapter)
 {
 	HAL_DATA_TYPE		*pHalData = GET_HAL_DATA(padapter);
-	u8			pa_setting;
+	u8			pa_setting = 0;
+
+	if (pHalData && pHalData->is_s9082) {
+		pa_setting = rtw_read8(padapter, 0x4016);
+		pa_setting &= 0xF0;
+		rtw_write8(padapter, 0x4016, pa_setting | 0x01);
+		rtw_write8(padapter, 0x4016, pa_setting | 0x09);
+		return;
+	}
 
 	/* FIXED PA current issue */
 	/* efuse_one_byte_read(padapter, 0x1FA, &pa_setting); */
 	efuse_OneByteRead(padapter, 0x1FA, &pa_setting, _FALSE);
-
 
 	if (!(pa_setting & BIT0)) {
 		phy_set_rf_reg(padapter, RF_PATH_A, 0x15, 0x0FFFFF, 0x0F406);
@@ -1044,22 +1131,46 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 		/* for WMM */
 		txpktbuf_bndy = WMM_NORMAL_TX_PAGE_BOUNDARY_88E(padapter);
 	}
-	_InitQueueReservedPage(padapter);
-	_InitQueuePriority(padapter);
-	_InitPageBoundary(padapter);
-	_InitTransferPageSize(padapter);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* S9082 Queue Allocation & Scrambled RQPN */
+		rtw_write8(padapter, 0x0214, 0x00);
+		rtw_write32(padapter, 0x0200, 0x01779000);
+		rtw_write16(padapter, 0x0218, 0xeeee);
+		rtw_write16(padapter, 0x021a, 0xeeee);
+		rtw_write16(padapter, 0x021c, 0x3e3e);
+
+		/* S9082 TX Queue Max Length - Crucial for xmitbuf allocation! */
+		rtw_hal_set_sdio_tx_max_length(padapter, 0, 9, 9, 238, SDIO_TX_DIV_NUM);
+
+		/* S9082 Queue Priority (0x410c / REG_TRXDMA_CTRL) - AlexELEC 0xaf0d */
+		value16 = (rtw_read16(padapter, REG_TRXDMA_CTRL) & 0x00e0) | 0xaf0d;
+		rtw_write16(padapter, REG_TRXDMA_CTRL, value16);
+
+		/* S9082 Page Boundary & Buffer Control */
+		rtw_write16(padapter, 0x0116, 0xbcff);
+		rtw_write8(padapter, 0x0104, 0x88);
+
+		/* S9082 SDIO Local Controls */
+		SdioLocalCmd52Write1Byte(padapter, 0x0000, 0x04);
+		SdioLocalCmd52Write1Byte(padapter, 0x0080, 0x00);
+
+		/* Magic registers */
+		rtw_write32(padapter, 0x0610, 0x87654321);
+		rtw_write32(padapter, 0x0700, 0x87654321);
+	} else {
+		_InitQueueReservedPage(padapter);
+		_InitQueuePriority(padapter);
+		_InitPageBoundary(padapter);
+		_InitTransferPageSize(padapter);
 
 #ifdef CONFIG_IOL_IOREG_CFG
-	_InitTxBufferBoundary(padapter, 0);
+		_InitTxBufferBoundary(padapter, 0);
 #endif
-	/*  */
-	/* Configure SDIO TxRx Control to enable Rx DMA timer masking. */
-	/* 2010.02.24. */
-	/*  */
-	value8 = SdioLocalCmd52Read1Byte(padapter, SDIO_REG_TX_CTRL);
-	SdioLocalCmd52Write1Byte(padapter, SDIO_REG_TX_CTRL, 0x02);
+		value8 = SdioLocalCmd52Read1Byte(padapter, SDIO_REG_TX_CTRL);
+		SdioLocalCmd52Write1Byte(padapter, SDIO_REG_TX_CTRL, 0x02);
 
-	rtw_write8(padapter, SDIO_LOCAL_BASE | SDIO_REG_HRPWM1, 0);
+		rtw_write8(padapter, SDIO_LOCAL_BASE | SDIO_REG_HRPWM1, 0);
+	}
 
 	HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_DOWNLOAD_FW);
 	if (padapter->registrypriv.mp_mode == 0) {
@@ -1123,20 +1234,28 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 	}
 
 	/* Enable TX Report & Tx Report Timer   */
-	value8 = rtw_read8(padapter, REG_TX_RPT_CTRL);
-	rtw_write8(padapter,  REG_TX_RPT_CTRL, (value8 | BIT1 | BIT0));
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* AlexELEC 0x6e14c-0x6e190: bit-reversed TX_RPT settings */
+		value8 = rtw_read8(padapter, REG_TX_RPT_CTRL);
+		rtw_write8(padapter, REG_TX_RPT_CTRL, (value8 | 0xc0));
+		rtw_write8(padapter, REG_TX_RPT_CTRL + 1, 0x40);
+		rtw_write16(padapter, REG_TX_RPT_TIME, 0xb30f);
+	} else {
+		value8 = rtw_read8(padapter, REG_TX_RPT_CTRL);
+		rtw_write8(padapter,  REG_TX_RPT_CTRL, (value8 | BIT1 | BIT0));
 
 #if (RATE_ADAPTIVE_SUPPORT == 1)
-	if (!pHalData->fw_ractrl) {
-		/* Set MAX RPT MACID */
-		rtw_write8(padapter,  REG_TX_RPT_CTRL + 1, 2); /* FOR sta mode ,0: bc/mc ,1:AP */
-		/* Tx RPT Timer. Unit: 32us */
-		rtw_write16(padapter, REG_TX_RPT_TIME, 0xCdf0);
-	} else
+		if (!pHalData->fw_ractrl) {
+			/* Set MAX RPT MACID */
+			rtw_write8(padapter,  REG_TX_RPT_CTRL + 1, 2); /* FOR sta mode ,0: bc/mc ,1:AP */
+			/* Tx RPT Timer. Unit: 32us */
+			rtw_write16(padapter, REG_TX_RPT_TIME, 0xCdf0);
+		} else
 #endif
-	{
-		/* disable tx rpt */
-		rtw_write8(padapter,  REG_TX_RPT_CTRL + 1, 0); /* FOR sta mode ,0: bc/mc ,1:AP */
+		{
+			/* disable tx rpt */
+			rtw_write8(padapter,  REG_TX_RPT_CTRL + 1, 0); /* FOR sta mode ,0: bc/mc ,1:AP */
+		}
 	}
 
 #if 0
@@ -1202,41 +1321,80 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 	_InitBeaconMaxError(padapter, _TRUE);
 	_InitInterrupt(padapter);
 
-	/* Enable MACTXEN/MACRXEN block */
-	value16 = rtw_read16(padapter, REG_CR);
-	value16 |= (MACTXEN | MACRXEN);
-	rtw_write8(padapter, REG_CR, value16);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u8 cr_val, ledcfg;
+		u16 txdma_chk;
+		u32 fwhw_txq;
 
-	rtw_write32(padapter, REG_MACID_NO_LINK_0, 0xFFFFFFFF);
-	rtw_write32(padapter, REG_MACID_NO_LINK_1, 0xFFFFFFFF);
+		/* 1. REG_CR: Enable MAC TX and RX (bits 0 and 1 on S9082) */
+		cr_val = rtw_read8(padapter, 0x4100);
+		rtw_write8(padapter, 0x4100, cr_val | 0x03);
 
+		/* 2. Unlink all MACIDs */
+		rtw_write32(padapter, 0x4484, 0xffffffff);
+		rtw_write32(padapter, 0x4488, 0xffffffff);
+
+		/* 3. Packet lifetime (0x20002000 is bit-reversed 0x04000400) */
+		rtw_write32(padapter, 0x44c0, 0x20002000);
+
+		/* 4. Baseband CCK & OFDM RX path demodulator enable */
+		s9082c_write_bbreg(padapter, 0x4800, 0x01000000, 1);
+		s9082c_write_bbreg(padapter, 0x4800, 0x02000000, 1);
+
+		/* 5. Invalidate CAM & set TX power */
+		invalidate_cam_all(padapter);
+		rtw_hal_set_tx_power_level(padapter, pHalData->current_channel);
+
+		/* 6. BAR mode & HW Seq (0x4080ffff is bit-reversed 0x0201ffff) */
+		rtw_write32(padapter, 0x44cc, 0x4080ffff);
+		rtw_write8(padapter, 0x4423, 0xff);
+
+		/* 7. PA Bias on RF 0x15 (synthesizer sub-bands 0..3) */
+		s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0xfffff, 0x0f406);
+		s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0xfffff, 0x4f406);
+		s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0xfffff, 0x8f406);
+		s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0xfffff, 0xcf406);
+
+		/* 8. LED / GPIO config (0x4016) */
+		ledcfg = rtw_read8(padapter, 0x4016);
+		rtw_write8(padapter, 0x4016, (ledcfg & 0xf0) | 0x01);
+		rtw_write8(padapter, 0x4016, (ledcfg & 0xf0) | 0x09);
+
+		/* 9. RRSR & TX report time */
+		rtw_write8(padapter, 0x4421, 0xf0);
+		rtw_write16(padapter, 0x44f0, 0xbc0f);
+
+		/* 10. TXDMA offset check (bit 14) & FWHW TXQ control (bit 11) */
+		txdma_chk = rtw_read16(padapter, 0x420c);
+		rtw_write16(padapter, 0x420c, txdma_chk | 0x4000);
+
+		fwhw_txq = rtw_read32(padapter, 0x4420);
+		rtw_write32(padapter, 0x4420, fwhw_txq | 0x800);
+
+		/* 11. Baseband EDCCA / adaptivity threshold (0x4c4c) */
+		rtw_write32(padapter, 0x4c4c, 0x00fe0301);
+	} else {
+		/* Enable MACTXEN/MACRXEN block */
+		value16 = rtw_read16(padapter, REG_CR);
+		value16 |= (MACTXEN | MACRXEN);
+		rtw_write8(padapter, REG_CR, value16);
+
+		rtw_write32(padapter, REG_MACID_NO_LINK_0, 0xFFFFFFFF);
+		rtw_write32(padapter, REG_MACID_NO_LINK_1, 0xFFFFFFFF);
+
+		HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_TURN_ON_BLOCK);
+		_BBTurnOnBlock(padapter);
+
+		HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_INIT_SECURITY);
+		invalidate_cam_all(padapter);
+
+		HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_MISC11);
+		rtw_hal_set_tx_power_level(padapter, pHalData->current_channel);
+
+		rtw_write32(padapter, REG_BAR_MODE_CTRL, 0x0201ffff);
+		rtw_write8(padapter, REG_HWSEQ_CTRL, 0xFF);
+	}
 #endif /* HAL_RF_ENABLE == 1 */
-
-
-	HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_TURN_ON_BLOCK);
-	_BBTurnOnBlock(padapter);
-
-	HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_INIT_SECURITY);
-#if 1
-	invalidate_cam_all(padapter);
-#else
-	CamResetAllEntry(padapter);
-	padapter->hal_func.EnableHWSecCfgHandler(padapter);
-#endif
-
-	HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_MISC11);
-	/* 2010/12/17 MH We need to set TX power according to EFUSE content at first. */
-	rtw_hal_set_tx_power_level(padapter, pHalData->current_channel);
-
-	/*  */
-	/* Disable BAR, suggested by Scott */
-	/* 2010.04.09 add by hpfan */
-	/*  */
-	rtw_write32(padapter, REG_BAR_MODE_CTRL, 0x0201ffff);
-
-	/* HW SEQ CTRL */
-	/* set 0x0 to 0xFF by tynli. Default enable HW SEQ NUM. */
-	rtw_write8(padapter, REG_HWSEQ_CTRL, 0xFF);
 
 
 #ifdef RTL8188ES_MAC_LOOPBACK
@@ -1777,5 +1935,15 @@ void rtl8188es_set_hal_ops(PADAPTER padapter)
 	pHalFunc->xmit_thread_handler = &rtl8188es_xmit_buf_handler;
 #endif
 	rtl8188e_set_hal_ops(pHalFunc);
+
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		pHalFunc->read_bbreg = &s9082c_read_bbreg;
+		pHalFunc->write_bbreg = &s9082c_write_bbreg;
+		pHalFunc->read_rfreg = &s9082c_read_rfreg;
+		pHalFunc->write_rfreg = &s9082c_write_rfreg;
+		pHalFunc->set_chnl_bw_handler = &s9082c_set_chnl_bw;
+		pHalFunc->SetBeaconRelatedRegistersHandler = &s9082c_set_bcn_related_regs;
+	}
+
 
 }

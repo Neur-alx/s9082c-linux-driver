@@ -17,6 +17,7 @@
 
 #include <drv_types.h>
 #include <hal_data.h>
+#include "hal8188e_s9082c_tables.h"
 
 const u32 _chip_type_to_odm_ic_type[] = {
 	0,
@@ -66,8 +67,10 @@ u8 rtw_hal_read_chip_info(_adapter *padapter)
 	rtn = padapter->hal_func.read_adapter_info(padapter);
 
 	if ((hci_type == RTW_SDIO || hci_type == RTW_GSPI)
-	    && !rtw_is_hw_init_completed(padapter))
-		rtw_hal_power_off(padapter);
+	    && !rtw_is_hw_init_completed(padapter)) {
+		if (!GET_HAL_DATA(padapter)->is_s9082)
+			rtw_hal_power_off(padapter);
+	}
 
 	RTW_INFO("%s in %d ms\n", __func__, rtw_get_passing_time_ms(start));
 
@@ -1096,6 +1099,8 @@ void	rtw_hal_sreset_init(_adapter *padapter)
 void rtw_hal_sreset_reset(_adapter *padapter)
 {
 	padapter = GET_PRIMARY_ADAPTER(padapter);
+	if (padapter && GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082)
+		return;
 	padapter->hal_func.silentreset(padapter);
 }
 
@@ -1390,6 +1395,9 @@ static s32 _rtw_hal_macid_sleep(_adapter *adapter, u8 macid, u8 sleep)
 	val32 = (val32 &~sel_mask_sel) | ((macid / 32) & sel_mask_sel);
 	rtw_write32(adapter, reg_sleep_ctrl, val32);
 
+	if (GET_HAL_DATA(adapter)->is_s9082)
+		bit_shift ^= 7;
+
 	val32 = rtw_read32(adapter, reg_sleep_info);
 	RTW_INFO(ADPT_FMT" %s macid=%d, ori reg_0x%03x=0x%08x\n"
 		, ADPT_ARG(adapter), sleep ? "sleep" : "wakeup"
@@ -1454,6 +1462,9 @@ static s32 _rtw_hal_macid_sleep(_adapter *adapter, u8 macid, u8 sleep)
 		rtw_warn_on(1);
 		goto exit;
 	}
+
+	if (GET_HAL_DATA(adapter)->is_s9082)
+		bit_shift ^= 7;
 
 	val32 = rtw_read32(adapter, reg_sleep);
 	RTW_INFO(ADPT_FMT" %s macid=%d, ori reg_0x%03x=0x%08x\n"
@@ -1532,6 +1543,9 @@ static s32 _rtw_hal_macid_bmp_sleep(_adapter *adapter, struct macid_bmp *bmp, u8
 		val32 = (val32 &~sel_mask_sel) | (mid & sel_mask_sel);
 		rtw_write32(adapter, reg_sleep_ctrl, val32);
 
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			m = s9082_bit_reverse32(m);
+
 		val32 = rtw_read32(adapter, reg_sleep_info);
 		RTW_INFO(ADPT_FMT" %s m%u=0x%08x, ori reg_0x%03x=0x%08x\n"
 			, ADPT_ARG(adapter), sleep ? "sleep" : "wakeup"
@@ -1595,6 +1609,9 @@ static s32 _rtw_hal_macid_bmp_sleep(_adapter *adapter, struct macid_bmp *bmp, u8
 			rtw_warn_on(1);
 			break;
 		}
+
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			m = s9082_bit_reverse32(m);
 
 		val32 = rtw_read32(adapter, reg_sleep);
 		RTW_INFO(ADPT_FMT" %s m%u=0x%08x, ori reg_0x%03x=0x%08x\n"

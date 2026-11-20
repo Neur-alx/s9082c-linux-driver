@@ -68,6 +68,8 @@ static void dump_mac_page0(PADAPTER padapter)
  *	_FAIL	enable fail
  */
 bool sdio_power_on_check(PADAPTER padapter) {
+	if (GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082)
+		return _SUCCESS;
 	u32 val_offset0, val_offset1, val_offset2, val_offset3;
 	u32 val_mix = 0;
 	u32 res = 0;

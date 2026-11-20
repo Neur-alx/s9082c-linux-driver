@@ -27,6 +27,26 @@
 *
 * Creadted by Roger, 2011.01.31.
 *   */
+static inline u32 s9082_permute32(u32 val)
+{
+	u32 w0 = val;
+	u32 w1 = (w0 & 0x55555555) << 1;
+	w1 |= (w0 & 0xaaaaaaaa) >> 1;
+	w0 = (w1 & 0x33333333) << 2;
+	w0 |= (w1 & 0xcccccccc) >> 2;
+	return w0;
+}
+
+static inline u16 s9082_permute16(u16 val)
+{
+	u32 w0 = val;
+	u32 w1 = (w0 & 0x5555) << 1;
+	w1 |= (w0 & 0xaaaa) >> 1;
+	w0 = (w1 & 0x3333) << 2;
+	w0 |= (w1 & 0xcccc) >> 2;
+	return (u16)w0;
+}
+
 static void HalSdioGetCmdAddr8723ASdio(
 		PADAPTER			padapter,
 		u8				DeviceID,
@@ -36,11 +56,21 @@ static void HalSdioGetCmdAddr8723ASdio(
 {
 	switch (DeviceID) {
 	case SDIO_LOCAL_DEVICE_ID:
-		*pCmdAddr = ((SDIO_LOCAL_DEVICE_ID << 13) | (Addr & SDIO_LOCAL_MSK));
+		if (padapter && GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082)
+			*pCmdAddr = 0x2000 | (Addr & SDIO_LOCAL_MSK);
+		else
+			*pCmdAddr = ((SDIO_LOCAL_DEVICE_ID << 13) | (Addr & SDIO_LOCAL_MSK));
 		break;
 
 	case WLAN_IOREG_DEVICE_ID:
-		*pCmdAddr = ((WLAN_IOREG_DEVICE_ID << 13) | (Addr & WLAN_IOREG_MSK));
+		if (padapter && GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082) {
+			u32 off = Addr & WLAN_IOREG_MSK;
+			if (off < 0x4000)
+				off += 0x4000;
+			*pCmdAddr = ((WLAN_IOREG_DEVICE_ID << 13) | off);
+		} else {
+			*pCmdAddr = ((WLAN_IOREG_DEVICE_ID << 13) | (Addr & WLAN_IOREG_MSK));
+		}
 		break;
 
 	case WLAN_TX_HIQ_DEVICE_ID:
@@ -113,7 +143,7 @@ static u8 get_deviceid(u32 addr)
  * Ref:
  *	HalSdioGetCmdAddr8723ASdio()
  */
-static u32 _cvrt2ftaddr(const u32 addr, u8 *pdeviceId, u16 *poffset)
+static u32 _cvrt2ftaddr(PADAPTER padapter, const u32 addr, u8 *pdeviceId, u16 *poffset)
 {
 	u8 deviceId;
 	u16 offset;
@@ -142,9 +172,16 @@ static u32 _cvrt2ftaddr(const u32 addr, u8 *pdeviceId, u16 *poffset)
 	default:
 		deviceId = WLAN_IOREG_DEVICE_ID;
 		offset = addr & WLAN_IOREG_MSK;
+		if (padapter && GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082) {
+			if (offset < 0x4000)
+				offset += 0x4000;
+		}
 		break;
 	}
-	ftaddr = (deviceId << 13) | offset;
+	if (padapter && GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082 && deviceId == SDIO_LOCAL_DEVICE_ID)
+		ftaddr = 0x2000 | offset;
+	else
+		ftaddr = (deviceId << 13) | offset;
 
 	if (pdeviceId)
 		*pdeviceId = deviceId;
@@ -166,7 +203,7 @@ static u8 _sdio_read8(PADAPTER padapter, u32 addr)
 
 	pintfhdl = &padapter->iopriv.intf;
 
-	ftaddr = _cvrt2ftaddr(addr, NULL, NULL);
+	ftaddr = _cvrt2ftaddr(padapter, addr, NULL, NULL);
 	val = _sd_read8(pintfhdl, ftaddr, NULL);
 
 
@@ -178,7 +215,7 @@ static u8 sdio_read8(struct intf_hdl *pintfhdl, u32 addr)
 	u32 ftaddr;
 	u8 val;
 
-	ftaddr = _cvrt2ftaddr(addr, NULL, NULL);
+	ftaddr = _cvrt2ftaddr(pintfhdl->padapter, addr, NULL, NULL);
 	val = sd_read8(pintfhdl, ftaddr, NULL);
 
 
@@ -191,7 +228,7 @@ static u16 sdio_read16(struct intf_hdl *pintfhdl, u32 addr)
 	u16 val;
 
 
-	ftaddr = _cvrt2ftaddr(addr, NULL, NULL);
+	ftaddr = _cvrt2ftaddr(pintfhdl->padapter, addr, NULL, NULL);
 	sd_cmd52_read(pintfhdl, ftaddr, 2, (u8 *)&val);
 	val = le16_to_cpu(val);
 
@@ -217,10 +254,10 @@ u32 _sdio_read32(PADAPTER padapter, u32 addr)
 	/* psdiodev = pintfhdl->pintf_dev; */
 	pintfhdl = &padapter->iopriv.intf;
 
-	ftaddr = _cvrt2ftaddr(addr, &deviceId, &offset);
+	ftaddr = _cvrt2ftaddr(padapter, addr, &deviceId, &offset);
 
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	if (((deviceId == WLAN_IOREG_DEVICE_ID) && (offset < 0x100))
+	if (((deviceId == WLAN_IOREG_DEVICE_ID) && ((offset & 0xFFF) < 0x100))
 	    || (_FALSE == bMacPwrCtrlOn)
 #ifdef CONFIG_LPS_LCLK
 	    || (_TRUE == adapter_to_pwrctl(padapter)->bFwCurrentInPSMode)
@@ -279,10 +316,10 @@ static u32 sdio_read32(struct intf_hdl *pintfhdl, u32 addr)
 
 	padapter = pintfhdl->padapter;
 
-	ftaddr = _cvrt2ftaddr(addr, &deviceId, &offset);
+	ftaddr = _cvrt2ftaddr(padapter, addr, &deviceId, &offset);
 
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	if (((deviceId == WLAN_IOREG_DEVICE_ID) && (offset < 0x100))
+	if (((deviceId == WLAN_IOREG_DEVICE_ID) && ((offset & 0xFFF) < 0x100))
 	    || (_FALSE == bMacPwrCtrlOn)
 #ifdef CONFIG_LPS_LCLK
 	    || (_TRUE == adapter_to_pwrctl(padapter)->bFwCurrentInPSMode)
@@ -341,10 +378,10 @@ static s32 sdio_readN(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *pbuf)
 	padapter = pintfhdl->padapter;
 	err = 0;
 
-	ftaddr = _cvrt2ftaddr(addr, &deviceId, &offset);
+	ftaddr = _cvrt2ftaddr(padapter, addr, &deviceId, &offset);
 
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	if (((deviceId == WLAN_IOREG_DEVICE_ID) && (offset < 0x100))
+	if (((deviceId == WLAN_IOREG_DEVICE_ID) && ((offset & 0xFFF) < 0x100))
 	    || (_FALSE == bMacPwrCtrlOn)
 #ifdef CONFIG_LPS_LCLK
 	    || (_TRUE == adapter_to_pwrctl(padapter)->bFwCurrentInPSMode)
@@ -382,7 +419,7 @@ static s32 sdio_write8(struct intf_hdl *pintfhdl, u32 addr, u8 val)
 	u32 ftaddr;
 	s32 err;
 
-	ftaddr = _cvrt2ftaddr(addr, NULL, NULL);
+	ftaddr = _cvrt2ftaddr(pintfhdl->padapter, addr, NULL, NULL);
 	sd_write8(pintfhdl, ftaddr, val, &err);
 
 
@@ -396,7 +433,7 @@ static s32 sdio_write16(struct intf_hdl *pintfhdl, u32 addr, u16 val)
 	s32 err;
 
 
-	ftaddr = _cvrt2ftaddr(addr, NULL, NULL);
+	ftaddr = _cvrt2ftaddr(pintfhdl->padapter, addr, NULL, NULL);
 	val = cpu_to_le16(val);
 	err = sd_cmd52_write(pintfhdl, ftaddr, 2, (u8 *)&val);
 
@@ -421,10 +458,10 @@ s32 _sdio_write32(PADAPTER padapter, u32 addr, u32 val)
 	pintfhdl = &padapter->iopriv.intf;
 	err = 0;
 
-	ftaddr = _cvrt2ftaddr(addr, &deviceId, &offset);
+	ftaddr = _cvrt2ftaddr(padapter, addr, &deviceId, &offset);
 
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	if (((deviceId == WLAN_IOREG_DEVICE_ID) && (offset < 0x100))
+	if (((deviceId == WLAN_IOREG_DEVICE_ID) && ((offset & 0xFFF) < 0x100))
 	    || (_FALSE == bMacPwrCtrlOn)
 #ifdef CONFIG_LPS_LCLK
 	    || (_TRUE == adapter_to_pwrctl(padapter)->bFwCurrentInPSMode)
@@ -487,10 +524,10 @@ static s32 sdio_write32(struct intf_hdl *pintfhdl, u32 addr, u32 val)
 	padapter = pintfhdl->padapter;
 	err = 0;
 
-	ftaddr = _cvrt2ftaddr(addr, &deviceId, &offset);
+	ftaddr = _cvrt2ftaddr(padapter, addr, &deviceId, &offset);
 
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	if (((deviceId == WLAN_IOREG_DEVICE_ID) && (offset < 0x100))
+	if (((deviceId == WLAN_IOREG_DEVICE_ID) && ((offset & 0xFFF) < 0x100))
 	    || (_FALSE == bMacPwrCtrlOn)
 #ifdef CONFIG_LPS_LCLK
 	    || (_TRUE == adapter_to_pwrctl(padapter)->bFwCurrentInPSMode)
@@ -552,10 +589,10 @@ static s32 sdio_writeN(struct intf_hdl *pintfhdl, u32 addr, u32 cnt, u8 *pbuf)
 	padapter = pintfhdl->padapter;
 	err = 0;
 
-	ftaddr = _cvrt2ftaddr(addr, &deviceId, &offset);
+	ftaddr = _cvrt2ftaddr(padapter, addr, &deviceId, &offset);
 
 	rtw_hal_get_hwreg(padapter, HW_VAR_APFM_ON_MAC, &bMacPwrCtrlOn);
-	if (((deviceId == WLAN_IOREG_DEVICE_ID) && (offset < 0x100))
+	if (((deviceId == WLAN_IOREG_DEVICE_ID) && ((offset & 0xFFF) < 0x100))
 	    || (_FALSE == bMacPwrCtrlOn)
 #ifdef CONFIG_LPS_LCLK
 	    || (_TRUE == adapter_to_pwrctl(padapter)->bFwCurrentInPSMode)
@@ -1148,6 +1185,8 @@ void InitInterrupt8188ESdio(PADAPTER padapter)
 				     *								SDIO_HIMR_ATIMEND_E_MSK			|
 				     *								SDIO_HIMR_CTWEND_MSK				| */
 				    0);
+	if (pHalData && pHalData->is_s9082)
+		pHalData->sdio_himr = 0x000C0003;
 }
 
 /*
@@ -1184,9 +1223,14 @@ void EnableInterrupt8188ESdio(PADAPTER padapter)
 	u32 himr;
 
 	pHalData = GET_HAL_DATA(padapter);
-	himr = cpu_to_le32(pHalData->sdio_himr);
+	himr = pHalData->sdio_himr;
+	if (pHalData && pHalData->is_s9082)
+		himr = s9082_permute32(himr);
+	himr = cpu_to_le32(himr);
 	sdio_local_write(padapter, SDIO_REG_HIMR, 4, (u8 *)&himr);
 
+	if (pHalData && pHalData->is_s9082)
+		rtw_write8(padapter, 0x41af, 0x00);
 
 	/*  */
 	/* <Roger_Notes> There are some C2H CMDs have been sent before system interrupt is enabled, e.g., C2H, CPWM. */
@@ -1208,9 +1252,13 @@ void EnableInterrupt8188ESdio(PADAPTER padapter)
  *   */
 void DisableInterrupt8188ESdio(PADAPTER padapter)
 {
+	PHAL_DATA_TYPE pHalData = GET_HAL_DATA(padapter);
 	u32 himr;
 
-	himr = cpu_to_le32(SDIO_HIMR_DISABLED);
+	himr = SDIO_HIMR_DISABLED;
+	if (pHalData && pHalData->is_s9082)
+		himr = s9082_permute32(himr);
+	himr = cpu_to_le32(himr);
 	sdio_local_write(padapter, SDIO_REG_HIMR, 4, (u8 *)&himr);
 
 }
@@ -1615,7 +1663,10 @@ void sd_int_dpc(PADAPTER padapter)
 
 				_sdio_local_read(padapter, SDIO_REG_RX0_REQ_LEN, 4, data);
 
-				pHalData->SdioRxFIFOSize = le16_to_cpu(*(u16 *)data);
+				if (pHalData && pHalData->is_s9082)
+					pHalData->SdioRxFIFOSize = s9082_permute16(le16_to_cpu(*(u16 *)data));
+				else
+					pHalData->SdioRxFIFOSize = le16_to_cpu(*(u16 *)data);
 			}
 
 			if (pHalData->SdioRxFIFOSize) {
@@ -1650,8 +1701,13 @@ void sd_int_hdl(PADAPTER padapter)
 		return;
 
 	_sdio_local_read(padapter, SDIO_REG_HISR, 6, data);
-	pHalData->sdio_hisr = le32_to_cpu(*(u32 *)data);
-	pHalData->SdioRxFIFOSize = le16_to_cpu(*(u16 *)&data[4]);
+	if (pHalData && pHalData->is_s9082) {
+		pHalData->sdio_hisr = s9082_permute32(le32_to_cpu(*(u32 *)data));
+		pHalData->SdioRxFIFOSize = s9082_permute16(le16_to_cpu(*(u16 *)&data[4]));
+	} else {
+		pHalData->sdio_hisr = le32_to_cpu(*(u32 *)data);
+		pHalData->SdioRxFIFOSize = le16_to_cpu(*(u16 *)&data[4]);
+	}
 
 	if (pHalData->sdio_hisr & pHalData->sdio_himr) {
 		u32 v32;
@@ -1661,6 +1717,8 @@ void sd_int_hdl(PADAPTER padapter)
 		/* clear HISR */
 		v32 = pHalData->sdio_hisr & MASK_SDIO_HISR_CLEAR;
 		if (v32) {
+			if (pHalData && pHalData->is_s9082)
+				v32 = s9082_permute32(v32);
 			v32 = cpu_to_le32(v32);
 			_sdio_local_write(padapter, SDIO_REG_HISR, 4, (u8 *)&v32);
 		}
@@ -1691,6 +1749,8 @@ u8 HalQueryTxBufferStatus8189ESdio(PADAPTER padapter)
 	pHalData = GET_HAL_DATA(padapter);
 
 	NumOfFreePage = SdioLocalCmd53Read4Byte(padapter, SDIO_REG_FREE_TXPG);
+	if (pHalData && pHalData->is_s9082)
+		NumOfFreePage = s9082_permute32(NumOfFreePage);
 
 	/* _enter_critical_bh(&pHalData->SdioTxFIFOFreePageLock, &irql); */
 	_rtw_memcpy(pHalData->SdioTxFIFOFreePage, &NumOfFreePage, 4);
@@ -1706,7 +1766,10 @@ u8 HalQueryTxBufferStatus8189ESdio(PADAPTER padapter)
 u8 HalQueryTxOQTBufferStatus8189ESdio(PADAPTER padapter)
 {
 	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(padapter);
-	pHalData->SdioTxOQTFreeSpace = SdioLocalCmd52Read1Byte(padapter, 0x0025/*SDIO_REG_OQT_FREE_PG*/);
+	u8 val8 = SdioLocalCmd52Read1Byte(padapter, 0x0025/*SDIO_REG_OQT_FREE_PG*/);
+	if (pHalData && pHalData->is_s9082)
+		val8 = (u8)s9082_permute16(val8);
+	pHalData->SdioTxOQTFreeSpace = val8;
 	return _TRUE;
 }
 

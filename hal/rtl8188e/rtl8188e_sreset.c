@@ -22,6 +22,8 @@
 void rtl8188e_sreset_xmit_status_check(_adapter *padapter)
 {
 	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
+	if (pHalData && pHalData->is_s9082)
+		return;
 	struct sreset_priv *psrtpriv = &pHalData->srestpriv;
 
 	systime current_time;
@@ -75,6 +77,8 @@ void rtl8188e_sreset_xmit_status_check(_adapter *padapter)
 void rtl8188e_sreset_linked_status_check(_adapter *padapter)
 {
 	HAL_DATA_TYPE	*pHalData = GET_HAL_DATA(padapter);
+	if (pHalData && pHalData->is_s9082)
+		return;
 	struct sreset_priv *psrtpriv = &pHalData->srestpriv;
 
 	u32 rx_dma_status = 0;

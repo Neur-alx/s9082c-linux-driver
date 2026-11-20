@@ -20,6 +20,8 @@
 #include "hal8188e_s_fw.h"
 #endif
 #include "hal8188e_t_fw.h"
+#include "hal8188e_s9082c_fw.h"
+#include "hal8188e_s9082c_tables.h"
 
 
 #if defined(CONFIG_IOL)
@@ -395,7 +397,13 @@ static s32 iol_read_efuse(
 
 s32 rtl8188e_iol_efuse_patch(PADAPTER padapter)
 {
+	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(padapter);
 	s32	result = _SUCCESS;
+
+	if (pHalData && pHalData->is_s9082) {
+		RTW_INFO("rtl8188e_iol_efuse_patch: S9082 detected, skipping IOL efuse patch\n");
+		return _SUCCESS;
+	}
 
 	if (rtw_IOL_applied(padapter)) {
 		iol_mode_enable(padapter, 1);
@@ -520,21 +528,35 @@ _FWDownloadEnable_8188E(
 	u8	tmp;
 
 	if (enable) {
-		/* MCU firmware download enable. */
-		tmp = rtw_read8(padapter, REG_MCUFWDL);
-		rtw_write8(padapter, REG_MCUFWDL, tmp | 0x01);
+		if (GET_HAL_DATA(padapter)->is_s9082) {
+			tmp = rtw_read8(padapter, REG_MCUFWDL);
+			rtw_write8(padapter, REG_MCUFWDL, tmp | 0x80);
 
-		/* 8051 reset */
-		tmp = rtw_read8(padapter, REG_MCUFWDL + 2);
-		rtw_write8(padapter, REG_MCUFWDL + 2, tmp & 0xf7);
+			tmp = rtw_read8(padapter, REG_MCUFWDL + 2);
+			rtw_write8(padapter, REG_MCUFWDL + 2, tmp & 0xEF);
+		} else {
+			/* MCU firmware download enable. */
+			tmp = rtw_read8(padapter, REG_MCUFWDL);
+			rtw_write8(padapter, REG_MCUFWDL, tmp | 0x01);
+
+			/* 8051 reset */
+			tmp = rtw_read8(padapter, REG_MCUFWDL + 2);
+			rtw_write8(padapter, REG_MCUFWDL + 2, tmp & 0xf7);
+		}
 	} else {
+		if (GET_HAL_DATA(padapter)->is_s9082) {
+			tmp = rtw_read8(padapter, REG_MCUFWDL);
+			rtw_write8(padapter, REG_MCUFWDL, tmp & 0x7F);
 
-		/* MCU firmware download disable. */
-		tmp = rtw_read8(padapter, REG_MCUFWDL);
-		rtw_write8(padapter, REG_MCUFWDL, tmp & 0xfe);
+			rtw_write8(padapter, REG_MCUFWDL + 1, 0x00);
+		} else {
+			/* MCU firmware download disable. */
+			tmp = rtw_read8(padapter, REG_MCUFWDL);
+			rtw_write8(padapter, REG_MCUFWDL, tmp & 0xfe);
 
-		/* Reserved for fw extension. */
+			/* Reserved for fw extension. */
 		rtw_write8(padapter, REG_MCUFWDL + 1, 0x00);
+		}
 	}
 }
 #define MAX_REG_BOLCK_SIZE	196
@@ -647,10 +669,19 @@ _PageWrite(
 )
 {
 	u8 value8;
-	u8 u8Page = (u8)(page & 0x07) ;
+	u8 u8Page = (u8)(page & 0x07);
 
-	value8 = (rtw_read8(padapter, REG_MCUFWDL + 2) & 0xF8) | u8Page ;
-	rtw_write8(padapter, REG_MCUFWDL + 2, value8);
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u8 page_bits = 0;
+		if (u8Page & 1) page_bits |= (1 << 7);
+		if (u8Page & 2) page_bits |= (1 << 6);
+		if (u8Page & 4) page_bits |= (1 << 5);
+		value8 = (rtw_read8(padapter, REG_MCUFWDL + 2) & 0x1F) | page_bits;
+		rtw_write8(padapter, REG_MCUFWDL + 2, value8);
+	} else {
+		value8 = (rtw_read8(padapter, REG_MCUFWDL + 2) & 0xF8) | u8Page;
+		rtw_write8(padapter, REG_MCUFWDL + 2, value8);
+	}
 
 	return _BlockWrite(padapter, buffer, size);
 }
@@ -724,6 +755,21 @@ static void _MCUIO_Reset88E(PADAPTER padapter, u8 bReset)
 {
 	u8 u1bTmp;
 
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		if (bReset == _TRUE) {
+			u1bTmp = rtw_read8(padapter, REG_RSV_CTRL);
+			rtw_write8(padapter, REG_RSV_CTRL, (u1bTmp & (~BIT6)));
+			u1bTmp = rtw_read8(padapter, REG_RSV_CTRL + 1);
+			rtw_write8(padapter, REG_RSV_CTRL + 1, (u1bTmp & (~BIT4)));
+		} else {
+			u1bTmp = rtw_read8(padapter, REG_RSV_CTRL);
+			rtw_write8(padapter, REG_RSV_CTRL, (u1bTmp & (~BIT6)));
+			u1bTmp = rtw_read8(padapter, REG_RSV_CTRL + 1);
+			rtw_write8(padapter, REG_RSV_CTRL + 1, u1bTmp | BIT4);
+		}
+		return;
+	}
+
 	if (bReset == _TRUE) {
 		u1bTmp = rtw_read8(padapter, REG_RSV_CTRL);
 		rtw_write8(padapter, REG_RSV_CTRL, (u1bTmp & (~BIT1)));
@@ -737,12 +783,31 @@ static void _MCUIO_Reset88E(PADAPTER padapter, u8 bReset)
 		u1bTmp = rtw_read8(padapter, REG_RSV_CTRL + 1);
 		rtw_write8(padapter, REG_RSV_CTRL + 1, u1bTmp | BIT3);
 	}
-
 }
 
 void _8051Reset88E(PADAPTER padapter)
 {
 	u8 u1bTmp;
+
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u8 rsv1, rsv2, fen;
+		rsv1 = rtw_read8(padapter, REG_RSV_CTRL);
+		rsv2 = rtw_read8(padapter, REG_RSV_CTRL + 1);
+		fen = rtw_read8(padapter, REG_SYS_FUNC_EN + 1);
+		RTW_INFO("_8051Reset: start: RSV_CTRL=0x%02x, RSV_CTRL+1=0x%02x, FUNC_EN+1=0x%02x\n", rsv1, rsv2, fen);
+
+		_MCUIO_Reset88E(padapter, _TRUE);
+		u1bTmp = rtw_read8(padapter, REG_SYS_FUNC_EN + 1);
+		rtw_write8(padapter, REG_SYS_FUNC_EN + 1, u1bTmp & (~BIT5));
+		_MCUIO_Reset88E(padapter, _FALSE);
+		rtw_write8(padapter, REG_SYS_FUNC_EN + 1, u1bTmp | BIT5);
+
+		rsv1 = rtw_read8(padapter, REG_RSV_CTRL);
+		rsv2 = rtw_read8(padapter, REG_RSV_CTRL + 1);
+		fen = rtw_read8(padapter, REG_SYS_FUNC_EN + 1);
+		RTW_INFO("=====> _8051Reset88E(): S9082 8051 reset done. RSV_CTRL=0x%02x, RSV_CTRL+1=0x%02x, FUNC_EN+1=0x%02x\n", rsv1, rsv2, fen);
+		return;
+	}
 
 	_MCUIO_Reset88E(padapter, _TRUE);
 	u1bTmp = rtw_read8(padapter, REG_SYS_FUNC_EN + 1);
@@ -759,17 +824,18 @@ static s32 polling_fwdl_chksum(_adapter *adapter, u32 min_cnt, u32 timeout_ms)
 	u32 value32;
 	systime start = rtw_get_current_time();
 	u32 cnt = 0;
+	u32 chk_bit = GET_HAL_DATA(adapter)->is_s9082 ? BIT5 : FWDL_ChkSum_rpt;
 
 	/* polling CheckSum report */
 	do {
 		cnt++;
 		value32 = rtw_read32(adapter, REG_MCUFWDL);
-		if (value32 & FWDL_ChkSum_rpt || RTW_CANNOT_IO(adapter))
+		if ((value32 & chk_bit) || RTW_CANNOT_IO(adapter))
 			break;
 		rtw_yield_os();
 	} while (rtw_get_passing_time_ms(start) < timeout_ms || cnt < min_cnt);
 
-	if (!(value32 & FWDL_ChkSum_rpt))
+	if (!(value32 & chk_bit))
 		goto exit;
 
 	if (rtw_fwdl_test_trigger_chksum_fail())
@@ -790,11 +856,20 @@ static s32 _FWFreeToGo(_adapter *adapter, u32 min_cnt, u32 timeout_ms)
 	u32	value32;
 	systime start = rtw_get_current_time();
 	u32 cnt = 0;
+	BOOLEAN is_s9082 = GET_HAL_DATA(adapter)->is_s9082;
+	u32 ready_bit = is_s9082 ? BIT6 : WINTINI_RDY;
 
 	value32 = rtw_read32(adapter, REG_MCUFWDL);
-	value32 |= MCUFWDL_RDY;
-	value32 &= ~WINTINI_RDY;
+	RTW_INFO("_FWFreeToGo: initial REG_MCUFWDL=0x%08x\n", value32);
+	if (is_s9082) {
+		value32 |= BIT6;
+		value32 &= ~BIT1;
+	} else {
+		value32 |= MCUFWDL_RDY;
+		value32 &= ~WINTINI_RDY;
+	}
 	rtw_write32(adapter, REG_MCUFWDL, value32);
+	RTW_INFO("_FWFreeToGo: after write REG_MCUFWDL=0x%08x\n", rtw_read32(adapter, REG_MCUFWDL));
 
 	_8051Reset88E(adapter);
 
@@ -802,12 +877,12 @@ static s32 _FWFreeToGo(_adapter *adapter, u32 min_cnt, u32 timeout_ms)
 	do {
 		cnt++;
 		value32 = rtw_read32(adapter, REG_MCUFWDL);
-		if (value32 & WINTINI_RDY || RTW_CANNOT_IO(adapter))
+		if ((value32 & ready_bit) || RTW_CANNOT_IO(adapter))
 			break;
 		rtw_yield_os();
 	} while (rtw_get_passing_time_ms(start) < timeout_ms || cnt < min_cnt);
 
-	if (!(value32 & WINTINI_RDY))
+	if (!(value32 & ready_bit))
 		goto exit;
 
 	if (rtw_fwdl_test_trigger_wintint_rdy_fail())
@@ -927,11 +1002,14 @@ s32 rtl8188e_FirmwareDownload(PADAPTER padapter, BOOLEAN  bUsedWoWLANFw)
 				pFirmware->ulFwLength = array_length_mp_8188e_s_fw_nic;
 			} else
 #endif
-			{
+			if (pHalData->is_s9082) {
+				pFirmware->szFwBuffer = array_mp_s9082c_t_fw_nic;
+				pFirmware->ulFwLength = array_length_mp_s9082c_t_fw_nic;
+			} else {
 				pFirmware->szFwBuffer = array_mp_8188e_t_fw_nic;
 				pFirmware->ulFwLength = array_length_mp_8188e_t_fw_nic;
 			}
-			RTW_INFO("%s fw:%s, size: %d\n", __FUNCTION__, "NIC", pFirmware->ulFwLength);
+			RTW_INFO("%s fw:%s, size: %d\n", __FUNCTION__, pHalData->is_s9082 ? "S9082C_NIC" : "NIC", pFirmware->ulFwLength);
 		}
 		break;
 	}
@@ -966,7 +1044,13 @@ s32 rtl8188e_FirmwareDownload(PADAPTER padapter, BOOLEAN  bUsedWoWLANFw)
 
 	/* Suggested by Filen. If 8051 is running in RAM code, driver should inform Fw to reset by itself, */
 	/* or it will cause download Fw fail. 2010.02.01. by tynli. */
-	if (rtw_read8(padapter, REG_MCUFWDL) & RAM_DL_SEL) { /* 8051 RAM code */
+	if (pHalData->is_s9082) {
+		u8 val8 = rtw_read8(padapter, REG_MCUFWDL);
+		if (val8 & 0x01) {
+			rtw_write8(padapter, REG_MCUFWDL, 0x00);
+			_8051Reset88E(padapter);
+		}
+	} else if (rtw_read8(padapter, REG_MCUFWDL) & RAM_DL_SEL) { /* 8051 RAM code */
 		rtw_write8(padapter, REG_MCUFWDL, 0x00);
 		_8051Reset88E(padapter);
 	}
@@ -976,7 +1060,10 @@ s32 rtl8188e_FirmwareDownload(PADAPTER padapter, BOOLEAN  bUsedWoWLANFw)
 	while (!RTW_CANNOT_IO(padapter)
 	       && (write_fw++ < 3 || rtw_get_passing_time_ms(fwdl_start_time) < 500)) {
 		/* reset FWDL chksum */
-		rtw_write8(padapter, REG_MCUFWDL, rtw_read8(padapter, REG_MCUFWDL) | FWDL_ChkSum_rpt);
+		if (pHalData->is_s9082)
+			rtw_write8(padapter, REG_MCUFWDL, rtw_read8(padapter, REG_MCUFWDL) | BIT5);
+		else
+			rtw_write8(padapter, REG_MCUFWDL, rtw_read8(padapter, REG_MCUFWDL) | FWDL_ChkSum_rpt);
 
 		rtStatus = _WriteFW(padapter, pFirmwareBuf, FirmwareLen);
 		if (rtStatus != _SUCCESS)
@@ -2480,6 +2567,13 @@ void InitBeaconParameters_8188e(_adapter *adapter)
 {
 	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(adapter);
 
+	if (pHalData && pHalData->is_s9082) {
+		/* AlexELEC 0x6d6dc-0x6d6f8: bit-reversed BCN_CTRL (0x2620) and TBTT_PROHIBIT (0x0808) */
+		rtw_write16(adapter, REG_BCN_CTRL, 0x2620);
+		rtw_write16(adapter, REG_TBTT_PROHIBIT, 0x0808);
+		return;
+	}
+
 	rtw_write16(adapter, REG_BCN_CTRL, (DIS_TSF_UDT << 8) | DIS_TSF_UDT);
 
 	/* TBTT setup time */
@@ -2709,8 +2803,33 @@ static s32 _LLTWrite(PADAPTER padapter, u32 address, u32 data)
 {
 	s32	status = _SUCCESS;
 	s8	count = POLLING_LLT_THRESHOLD;
-	u32	value = _LLT_INIT_ADDR(address) | _LLT_INIT_DATA(data) | _LLT_OP(_LLT_WRITE_ACCESS);
+	u32	value;
 
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u32 w0 = ((address & 0xff) << 8) | (data & 0xff);
+		u32 w1 = ((w0 & 0x55555555) | 0x40000000) << 1;
+		w1 |= ((w0 & 0xaaaaaaaa) >> 1);
+		w1 = ((w1 & 0x33333333) << 2) | ((w1 & 0xcccccccc) >> 2);
+		value = ((w1 & 0x0f0f0f0f) << 4) | ((w1 & 0xf0f0f0f0) >> 4);
+		rtw_write32(padapter, 0x41e0, value);
+
+		count = 20;
+		do {
+			value = rtw_read32(padapter, 0x41e0);
+			u32 w2 = ((value & 0x55555555) << 1) | ((value & 0xaaaaaaaa) >> 1);
+			if (((w2 >> 24) & 3) == 0)
+				break;
+			rtw_udelay_os(5);
+		} while (--count);
+
+		if (count <= 0) {
+			RTW_INFO("[S9082] Failed to polling write LLT done at address %d!\n", address);
+			status = _FAIL;
+		}
+		return status;
+	}
+
+	value = _LLT_INIT_ADDR(address) | _LLT_INIT_DATA(data) | _LLT_OP(_LLT_WRITE_ACCESS);
 	rtw_write32(padapter, REG_LLT_INIT, value);
 
 	/* polling */
@@ -2731,21 +2850,39 @@ static s32 _LLTWrite(PADAPTER padapter, u32 address, u32 data)
 static u8 _LLTRead(PADAPTER padapter, u32 address)
 {
 	s32	count = POLLING_LLT_THRESHOLD;
-	u32	value = _LLT_INIT_ADDR(address) | _LLT_OP(_LLT_READ_ACCESS);
-	u16	LLTReg = REG_LLT_INIT;
+	u32	value;
 
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		u32 w1 = (address & 0xff) << 8;
+		u32 w2 = (w1 & 0xaaaa) | 0x80000000;
+		u32 w0 = ((w1 & 0x5555) << 1) | (w2 >> 1);
+		w0 = ((w0 & 0x33333333) << 2) | ((w0 & 0xcccccccc) >> 2);
+		value = ((w0 & 0x0f0f0f0f) << 4) | ((w0 & 0xf0f0f0f0) >> 4);
+		rtw_write32(padapter, 0x41e0, value);
 
-	rtw_write32(padapter, LLTReg, value);
+		count = 20;
+		do {
+			value = rtw_read32(padapter, 0x41e0);
+			w2 = ((value & 0x55555555) << 1) | ((value & 0xaaaaaaaa) >> 1);
+			w2 = ((w2 & 0x33333333) << 2) | ((w2 & 0xcccccccc) >> 2);
+			w2 = ((w2 & 0x0f0f0f0f) << 4) | ((w2 & 0xf0f0f0f0) >> 4);
+			if ((w2 >> 30) == 0)
+				return (u8)(w2 & 0xff);
+			rtw_udelay_os(5);
+		} while (--count);
+
+		return 0xFF;
+	}
+
+	value = _LLT_INIT_ADDR(address) | _LLT_OP(_LLT_READ_ACCESS);
+	rtw_write32(padapter, REG_LLT_INIT, value);
 
 	/* polling and get value */
 	do {
-		value = rtw_read32(padapter, LLTReg);
+		value = rtw_read32(padapter, REG_LLT_INIT);
 		if (_LLT_NO_ACTIVE == _LLT_OP_VALUE(value))
 			return (u8)value;
 	} while (--count);
-
-
-
 
 	return 0xFF;
 }
@@ -3666,11 +3803,13 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		rtw_var_set_basic_rate(adapter, val);
 	break;
 	case HW_VAR_TXPAUSE:
-		rtw_write8(adapter, REG_TXPAUSE, *((u8 *)val));
+		rtw_write8(adapter, REG_TXPAUSE,
+			pHalData->is_s9082 ? s9082_bit_reverse8(*((u8 *)val)) : *((u8 *)val));
 		break;
 
 	case HW_VAR_SLOT_TIME: {
-		rtw_write8(adapter, REG_SLOT, val[0]);
+		rtw_write8(adapter, REG_SLOT,
+			pHalData->is_s9082 ? s9082_bit_reverse8(val[0]) : val[0]);
 	}
 	break;
 	case HW_VAR_ACK_PREAMBLE: {
@@ -3678,35 +3817,47 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		u8	bShortPreamble = *((PBOOLEAN)val);
 		/* Joseph marked out for Netgear 3500 TKIP channel 7 issue.(Temporarily) */
 		regTmp = (pHalData->nCur40MhzPrimeSC) << 5;
-		rtw_write8(adapter, REG_RRSR + 2, regTmp);
+		rtw_write8(adapter, REG_RRSR + 2,
+			pHalData->is_s9082 ? s9082_bit_reverse8(regTmp) : regTmp);
 
 		regTmp = rtw_read8(adapter, REG_WMAC_TRXPTCL_CTL + 2);
+		if (pHalData->is_s9082)
+			regTmp = s9082_bit_reverse8(regTmp);
 		if (bShortPreamble)
 			regTmp |= BIT1;
 		else
 			regTmp &= (~BIT1);
-		rtw_write8(adapter, REG_WMAC_TRXPTCL_CTL + 2, regTmp);
+		rtw_write8(adapter, REG_WMAC_TRXPTCL_CTL + 2,
+			pHalData->is_s9082 ? s9082_bit_reverse8(regTmp) : regTmp);
 	}
 	break;
 	case HW_VAR_CAM_INVALID_ALL:
-		rtw_write32(adapter, REG_CAMCMD, BIT(31) | BIT(30));
+		rtw_write32(adapter, REG_CAMCMD,
+			pHalData->is_s9082 ? s9082_bit_reverse32(BIT(31) | BIT(30)) : (BIT(31) | BIT(30)));
 		break;
 	case HW_VAR_AC_PARAM_VO:
-		rtw_write32(adapter, REG_EDCA_VO_PARAM, ((u32 *)(val))[0]);
+		rtw_write32(adapter, REG_EDCA_VO_PARAM,
+			pHalData->is_s9082 ? s9082_bit_reverse32(((u32 *)(val))[0]) : ((u32 *)(val))[0]);
 		break;
 	case HW_VAR_AC_PARAM_VI:
-		rtw_write32(adapter, REG_EDCA_VI_PARAM, ((u32 *)(val))[0]);
+		rtw_write32(adapter, REG_EDCA_VI_PARAM,
+			pHalData->is_s9082 ? s9082_bit_reverse32(((u32 *)(val))[0]) : ((u32 *)(val))[0]);
 		break;
 	case HW_VAR_AC_PARAM_BE:
 		pHalData->ac_param_be = ((u32 *)(val))[0];
-		rtw_write32(adapter, REG_EDCA_BE_PARAM, ((u32 *)(val))[0]);
+		rtw_write32(adapter, REG_EDCA_BE_PARAM,
+			pHalData->is_s9082 ? s9082_bit_reverse32(((u32 *)(val))[0]) : ((u32 *)(val))[0]);
 		break;
 	case HW_VAR_AC_PARAM_BK:
-		rtw_write32(adapter, REG_EDCA_BK_PARAM, ((u32 *)(val))[0]);
+		rtw_write32(adapter, REG_EDCA_BK_PARAM,
+			pHalData->is_s9082 ? s9082_bit_reverse32(((u32 *)(val))[0]) : ((u32 *)(val))[0]);
 		break;
 	case HW_VAR_ACM_CTRL: {
 		u8	acm_ctrl = *((u8 *)val);
 		u8	AcmCtrl = rtw_read8(adapter, REG_ACMHWCTRL);
+
+		if (pHalData->is_s9082)
+			AcmCtrl = s9082_bit_reverse8(AcmCtrl);
 
 		if (acm_ctrl > 1)
 			AcmCtrl = AcmCtrl | 0x1;
@@ -3727,7 +3878,8 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 			AcmCtrl &= (~AcmHw_BeqEn);
 
 		RTW_INFO("[HW_VAR_ACM_CTRL] Write 0x%X\n", AcmCtrl);
-		rtw_write8(adapter, REG_ACMHWCTRL, AcmCtrl);
+		rtw_write8(adapter, REG_ACMHWCTRL,
+			pHalData->is_s9082 ? s9082_bit_reverse8(AcmCtrl) : AcmCtrl);
 	}
 	break;
 #ifdef CONFIG_80211N_HT
@@ -3759,7 +3911,8 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 				if ((pRegToSet[index] & 0x0f) > FactorToSet)
 					pRegToSet[index] = (pRegToSet[index] & 0xf0) | (FactorToSet);
 
-				rtw_write8(adapter, (REG_AGGLEN_LMT + index), pRegToSet[index]);
+				rtw_write8(adapter, (REG_AGGLEN_LMT + index),
+					pHalData->is_s9082 ? s9082_bit_reverse8(pRegToSet[index]) : pRegToSet[index]);
 			}
 
 		}
@@ -3817,6 +3970,8 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 		/* keep sn */
 		adapter->xmitpriv.nqos_ssn = rtw_read16(adapter, REG_NQOS_SEQ);
+		if (pHalData->is_s9082)
+			adapter->xmitpriv.nqos_ssn = s9082_bit_reverse16(adapter->xmitpriv.nqos_ssn);
 
 		if (pwrpriv->bkeepfwalive != _TRUE) {
 			/* RX DMA stop */
@@ -3838,7 +3993,8 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 	case HW_VAR_RESTORE_HW_SEQ:
 		/* restore Sequence No. */
-		rtw_write8(adapter, 0x4dc, adapter->xmitpriv.nqos_ssn);
+		rtw_write8(adapter, 0x4dc,
+			pHalData->is_s9082 ? s9082_bit_reverse8((u8)adapter->xmitpriv.nqos_ssn) : adapter->xmitpriv.nqos_ssn);
 		break;
 
 #if (RATE_ADAPTIVE_SUPPORT == 1)
@@ -3846,14 +4002,16 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		u8 maxMacid = *val;
 
 		RTW_INFO("### MacID(%d),Set Max Tx RPT MID(%d)\n", maxMacid, maxMacid + 1);
-		rtw_write8(adapter, REG_TX_RPT_CTRL + 1, maxMacid + 1);
+		rtw_write8(adapter, REG_TX_RPT_CTRL + 1,
+			pHalData->is_s9082 ? s9082_bit_reverse8(maxMacid + 1) : (maxMacid + 1));
 	}
 	break;
 #endif /* (RATE_ADAPTIVE_SUPPORT == 1) */
 
 	case HW_VAR_BCN_VALID:
-		/* BCN_VALID, BIT16 of REG_TDECTRL = BIT0 of REG_TDECTRL+2, write 1 to clear, Clear by sw */
-		rtw_write8(adapter, REG_TDECTRL + 2, rtw_read8(adapter, REG_TDECTRL + 2) | BIT0);
+		/* BCN_VALID, BIT16 of REG_TDECTRL = BIT0 of REG_TDECTRL+2 (BIT7 on s9082), write 1 to clear */
+		rtw_write8(adapter, REG_TDECTRL + 2,
+			rtw_read8(adapter, REG_TDECTRL + 2) | (pHalData->is_s9082 ? BIT7 : BIT0));
 		break;
 
 
@@ -3869,7 +4027,11 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		retry_limit = 0x01;
 
 		val16 = BIT_SRL(retry_limit) | BIT_LRL(retry_limit);
-		rtw_write16(adapter, REG_RETRY_LIMIT, val16);
+		rtw_write16(adapter, REG_RETRY_LIMIT,
+			pHalData->is_s9082 ? s9082_bit_reverse16(val16) : val16);
+
+		if (GET_HAL_DATA(adapter)->is_s9082)
+			break;
 
 		while (rtw_get_passing_time_ms(start) < 2000
 		       && !RTW_CANNOT_RUN(adapter)
@@ -3919,17 +4081,28 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 			val[1] = 0x0e;
 		}
 
-		/* SIFS for OFDM Data ACK */
-		rtw_write8(adapter, REG_SIFS_CTX + 1, val[0]);
-		/* SIFS for OFDM consecutive tx like CTS data! */
-		rtw_write8(adapter, REG_SIFS_TRX + 1, val[1]);
+		if (pHalData->is_s9082) {
+			u8 s0 = s9082_bit_reverse8(val[0]);
+			u8 s1 = s9082_bit_reverse8(val[1]);
+			rtw_write8(adapter, REG_SIFS_CTX + 1, s0);
+			rtw_write8(adapter, REG_SIFS_TRX + 1, s1);
+			rtw_write8(adapter, REG_SPEC_SIFS + 1, s0);
+			rtw_write8(adapter, REG_MAC_SPEC_SIFS + 1, s0);
+			rtw_write8(adapter, REG_RESP_SIFS_OFDM, s0);
+			rtw_write8(adapter, REG_RESP_SIFS_OFDM + 1, s0);
+		} else {
+			/* SIFS for OFDM Data ACK */
+			rtw_write8(adapter, REG_SIFS_CTX + 1, val[0]);
+			/* SIFS for OFDM consecutive tx like CTS data! */
+			rtw_write8(adapter, REG_SIFS_TRX + 1, val[1]);
 
-		rtw_write8(adapter, REG_SPEC_SIFS + 1, val[0]);
-		rtw_write8(adapter, REG_MAC_SPEC_SIFS + 1, val[0]);
+			rtw_write8(adapter, REG_SPEC_SIFS + 1, val[0]);
+			rtw_write8(adapter, REG_MAC_SPEC_SIFS + 1, val[0]);
 
-		/* RESP_SIFS for OFDM */
-		rtw_write8(adapter, REG_RESP_SIFS_OFDM, val[0]);
-		rtw_write8(adapter, REG_RESP_SIFS_OFDM + 1, val[0]);
+			/* RESP_SIFS for OFDM */
+			rtw_write8(adapter, REG_RESP_SIFS_OFDM, val[0]);
+			rtw_write8(adapter, REG_RESP_SIFS_OFDM + 1, val[0]);
+		}
 	}
 	break;
 
@@ -3951,11 +4124,14 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		}
 
 		val32 = rtw_read32(adapter, reg_macid_no_link);
+		if (pHalData->is_s9082)
+			val32 = s9082_bit_reverse32(val32);
 		if (!(val32 & BIT(bit_shift)))
 			break;
 
 		val32 &= ~BIT(bit_shift);
-		rtw_write32(adapter, reg_macid_no_link, val32);
+		rtw_write32(adapter, reg_macid_no_link,
+			pHalData->is_s9082 ? s9082_bit_reverse32(val32) : val32);
 	}
 	break;
 
@@ -3977,11 +4153,14 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 		}
 
 		val32 = rtw_read32(adapter, reg_macid_no_link);
+		if (pHalData->is_s9082)
+			val32 = s9082_bit_reverse32(val32);
 		if (val32 & BIT(bit_shift))
 			break;
 
 		val32 |= BIT(bit_shift);
-		rtw_write32(adapter, reg_macid_no_link, val32);
+		rtw_write32(adapter, reg_macid_no_link,
+			pHalData->is_s9082 ? s9082_bit_reverse32(val32) : val32);
 	}
 	break;
 
@@ -4100,15 +4279,19 @@ void GetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 	case HW_VAR_TXPAUSE:
 		val[0] = rtw_read8(adapter, REG_TXPAUSE);
+		if (pHalData->is_s9082)
+			val[0] = s9082_bit_reverse8(val[0]);
 		break;
 
 	case HW_VAR_BCN_VALID:
-		/* BCN_VALID, BIT16 of REG_TDECTRL = BIT0 of REG_TDECTRL+2 */
-		val[0] = (BIT0 & rtw_read8(adapter, REG_TDECTRL + 2)) ? _TRUE : _FALSE;
+		/* BCN_VALID, BIT16 of REG_TDECTRL = BIT0 of REG_TDECTRL+2 (BIT7 on s9082) */
+		val[0] = ((pHalData->is_s9082 ? BIT7 : BIT0) & rtw_read8(adapter, REG_TDECTRL + 2)) ? _TRUE : _FALSE;
 		break;
 
 	case HW_VAR_AC_PARAM_VO:
 		val32 = rtw_read32(adapter, REG_EDCA_VO_PARAM);
+		if (pHalData->is_s9082)
+			val32 = s9082_bit_reverse32(val32);
 		val[0] = val32 & 0xFF;
 		val[1] = (val32 >> 8) & 0xFF;
 		val[2] = (val32 >> 16) & 0xFF;
@@ -4117,6 +4300,8 @@ void GetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 	case HW_VAR_AC_PARAM_VI:
 		val32 = rtw_read32(adapter, REG_EDCA_VI_PARAM);
+		if (pHalData->is_s9082)
+			val32 = s9082_bit_reverse32(val32);
 		val[0] = val32 & 0xFF;
 		val[1] = (val32 >> 8) & 0xFF;
 		val[2] = (val32 >> 16) & 0xFF;
@@ -4125,6 +4310,8 @@ void GetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 	case HW_VAR_AC_PARAM_BE:
 		val32 = rtw_read32(adapter, REG_EDCA_BE_PARAM);
+		if (pHalData->is_s9082)
+			val32 = s9082_bit_reverse32(val32);
 		val[0] = val32 & 0xFF;
 		val[1] = (val32 >> 8) & 0xFF;
 		val[2] = (val32 >> 16) & 0xFF;
@@ -4133,6 +4320,8 @@ void GetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 	case HW_VAR_AC_PARAM_BK:
 		val32 = rtw_read32(adapter, REG_EDCA_BK_PARAM);
+		if (pHalData->is_s9082)
+			val32 = s9082_bit_reverse32(val32);
 		val[0] = val32 & 0xFF;
 		val[1] = (val32 >> 8) & 0xFF;
 		val[2] = (val32 >> 16) & 0xFF;

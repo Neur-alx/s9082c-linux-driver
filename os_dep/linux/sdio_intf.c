@@ -49,6 +49,7 @@ static const struct sdio_device_id sdio_ids[] = {
 #endif
 #ifdef CONFIG_RTL8188E
 	{ SDIO_DEVICE(0x024c, 0x8179), .driver_data = RTL8188E},
+	{ SDIO_DEVICE(0x02e7, 0x9082), .driver_data = RTL8188E},
 #endif /* CONFIG_RTL8188E */
 
 #ifdef CONFIG_RTL8821A
@@ -696,6 +697,15 @@ u8 rtw_set_hal_ops(PADAPTER padapter)
 	/* alloc memory for HAL DATA */
 	if (rtw_hal_data_init(padapter) == _FAIL)
 		return _FAIL;
+
+	{
+		struct dvobj_priv *dvobj = adapter_to_dvobj(padapter);
+		struct sdio_func *func = dvobj->intf_data.func;
+		if (func && func->vendor == 0x02e7 && func->device == 0x9082) {
+			GET_HAL_DATA(padapter)->is_s9082 = 1;
+			RTW_INFO("Identified SmartChip S9082C / 9082xs (SDIO 02E7:9082)!\n");
+		}
+	}
 
 #if defined(CONFIG_RTL8188E)
 	if (rtw_get_chip_type(padapter) == RTL8188E)

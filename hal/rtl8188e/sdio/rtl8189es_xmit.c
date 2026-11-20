@@ -16,6 +16,7 @@
 
 #include <drv_types.h>
 #include <rtl8188e_hal.h>
+#include "hal8188e_s9082c_tables.h" 
 
 static void fill_txdesc_sectype(struct pkt_attrib *pattrib, PTXDESC_8188E ptxdesc)
 {
@@ -512,18 +513,32 @@ s32 _dequeue_writeport(PADAPTER padapter)
 	deviceId = ffaddr2deviceId(pdvobjpriv, pxmitbuf->ff_hwaddr);
 
 	/* translate fifo addr to queue index */
-	switch (deviceId) {
-	case WLAN_TX_HIQ_DEVICE_ID:
-		PageIdx = HI_QUEUE_IDX;
-		break;
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		switch (deviceId) {
+		case WLAN_TX_HIQ_DEVICE_ID:
+			PageIdx = MID_QUEUE_IDX;
+			break;
+		case WLAN_TX_MIQ_DEVICE_ID:
+			PageIdx = LOW_QUEUE_IDX;
+			break;
+		case WLAN_TX_LOQ_DEVICE_ID:
+			PageIdx = HI_QUEUE_IDX;
+			break;
+		}
+	} else {
+		switch (deviceId) {
+		case WLAN_TX_HIQ_DEVICE_ID:
+			PageIdx = HI_QUEUE_IDX;
+			break;
 
-	case WLAN_TX_MIQ_DEVICE_ID:
-		PageIdx = MID_QUEUE_IDX;
-		break;
+		case WLAN_TX_MIQ_DEVICE_ID:
+			PageIdx = MID_QUEUE_IDX;
+			break;
 
-	case WLAN_TX_LOQ_DEVICE_ID:
-		PageIdx = LOW_QUEUE_IDX;
-		break;
+		case WLAN_TX_LOQ_DEVICE_ID:
+			PageIdx = LOW_QUEUE_IDX;
+			break;
+		}
 	}
 
 query_free_page:

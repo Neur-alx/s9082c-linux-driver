@@ -29,6 +29,7 @@ Major Change History:
 
 --*/
 #include <HalPwrSeqCmd.h>
+#include <hal_data.h>
 
 
 /*
@@ -65,6 +66,11 @@ u8 HalPwrSeqCmdParsing(
 		if ((GET_PWR_CFG_FAB_MASK(PwrCfgCmd) & FabVersion) &&
 		    (GET_PWR_CFG_CUT_MASK(PwrCfgCmd) & CutVersion) &&
 		    (GET_PWR_CFG_INTF_MASK(PwrCfgCmd) & InterfaceType)) {
+			if (GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082) {
+				pr_info("[S9082] PwrSeqCmd[%d]: cmd=%d base=%d offset=0x%04x msk=0x%02x val=0x%02x\n",
+					AryIdx, GET_PWR_CFG_CMD(PwrCfgCmd), GET_PWR_CFG_BASE(PwrCfgCmd),
+					GET_PWR_CFG_OFFSET(PwrCfgCmd), GET_PWR_CFG_MASK(PwrCfgCmd), GET_PWR_CFG_VALUE(PwrCfgCmd));
+			}
 			switch (GET_PWR_CFG_CMD(PwrCfgCmd)) {
 			case PWR_CMD_READ:
 				break;
@@ -106,6 +112,7 @@ u8 HalPwrSeqCmdParsing(
 
 			case PWR_CMD_POLLING:
 
+				pollingCount = 0;
 				bPollingBit = _FALSE;
 				offset = GET_PWR_CFG_OFFSET(PwrCfgCmd);
 
@@ -135,7 +142,8 @@ u8 HalPwrSeqCmdParsing(
 						rtw_udelay_os(10);
 
 					if (pollingCount++ > maxPollingCnt) {
-						RTW_ERR("HalPwrSeqCmdParsing: Fail to polling Offset[%#x]=%02x\n", offset, value);
+						pr_err("[S9082] HalPwrSeqCmdParsing: Timeout polling base=%d offset=0x%04x val=0x%02x (expected=0x%02x, msk=0x%02x)\n",
+							GET_PWR_CFG_BASE(PwrCfgCmd), offset, value, GET_PWR_CFG_VALUE(PwrCfgCmd), GET_PWR_CFG_MASK(PwrCfgCmd));
 
 						/* For PCIE + USB package poll power bit timeout issue only modify 8821AE and 8723BE */
 						if (bHWICSupport && offset == 0x06  && flag == 0) {
