@@ -44,12 +44,12 @@ int rtw_scan_mode = 1;/* active, passive */
 /* int smart_ps = 1; */
 #ifdef CONFIG_POWER_SAVING
 	/* IPS configuration */
-	int rtw_ips_mode = RTW_IPS_MODE;
+	int rtw_ips_mode = IPS_NONE;
 
 	/* LPS configuration */
 /* RTW_LPS_MODE=0:disable, 1:LPS , 2:LPS with clock gating, 3: power gating */
 #if (RTW_LPS_MODE > 0)
-	int rtw_power_mgnt = PS_MODE_MAX;
+	int rtw_power_mgnt = PS_MODE_ACTIVE;
 
 	#ifdef CONFIG_USB_HCI
 		int rtw_lps_level = LPS_NORMAL; /*USB default LPS level*/

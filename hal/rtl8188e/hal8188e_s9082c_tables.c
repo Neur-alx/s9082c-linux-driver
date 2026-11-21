@@ -2324,7 +2324,7 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 	if (Bandwidth == CHANNEL_WIDTH_20) {
 		pHalData->RfRegChnlVal[RF_PATH_A] = ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffffc00) | 0x0c00 | channel);
 	} else {
-		pHalData->RfRegChnlVal[RF_PATH_A] = ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffff300) | 0x0400 | channel);
+		pHalData->RfRegChnlVal[RF_PATH_A] = ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffff000) | 0x0400 | channel);
 	}
 	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, pHalData->RfRegChnlVal[RF_PATH_A]);
 
@@ -2384,4 +2384,363 @@ void s9082c_set_bcn_related_regs(PADAPTER padapter)
 	rtw_write8(padapter, 0x4525, 0xf6);
 	ResumeTxBeacon(padapter);
 	rtw_write8(padapter, 0x4550, rtw_read8(padapter, 0x4550) | 0x40);
+}
+
+void s9082c_lc_calibrate(PADAPTER Adapter)
+{
+	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(Adapter);
+	u8 tmpreg;
+	u32 rf_amode = 0, lc_cal;
+
+	tmpreg = rtw_read8(Adapter, 0x4d03);
+	if ((tmpreg & 0x0e) != 0)
+		rtw_write8(Adapter, 0x4d03, tmpreg & ~0x0e);
+	else
+		rtw_write8(Adapter, 0x4522, 0xff);
+
+	if ((tmpreg & 0x0e) != 0) {
+		rf_amode = s9082c_read_rfreg(Adapter, RF_PATH_A, 0x00, 0xfffff);
+		s9082c_write_rfreg(Adapter, RF_PATH_A, 0x00, 0xfffff,
+				   (rf_amode & 0x8ffff) | 0x10000);
+	}
+
+	lc_cal = s9082c_read_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff);
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, lc_cal | 0x8000);
+
+	rtw_msleep_os(100);
+
+	if ((tmpreg & 0x0e) != 0) {
+		rtw_write8(Adapter, 0x4d03, tmpreg);
+		s9082c_write_rfreg(Adapter, RF_PATH_A, 0x00, 0xfffff, rf_amode);
+	} else {
+		rtw_write8(Adapter, 0x4522, 0x00);
+	}
+
+	/* Restore clean channel/BW word without bit 15 latched */
+	if (pHalData->RfRegChnlVal[RF_PATH_A] != 0)
+		s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff,
+				   pHalData->RfRegChnlVal[RF_PATH_A]);
+
+	RTW_INFO("S9082C LCK done (tmpreg=0x%02x, lc_cal=0x%05x)\n", tmpreg, lc_cal);
+}
+
+static u8 s9082c_path_a_tx_iqk(PADAPTER Adapter)
+{
+	u32 eac, e94, e9c;
+
+	rtw_write32(Adapter, 0x4e30, 0x08003138);
+	rtw_write32(Adapter, 0x4e34, 0x0c003138);
+	rtw_write32(Adapter, 0x4e38, 0x4128c054);
+	rtw_write32(Adapter, 0x4e3c, 0x14680000);
+	rtw_write32(Adapter, 0x4e4c, 0x00629488);
+	rtw_write32(Adapter, 0x4e48, 0x9f000000);
+	rtw_write32(Adapter, 0x4e48, 0x1f000000);
+	rtw_mdelay_os(10);
+
+	eac = rtw_read32(Adapter, 0x4eac);
+	e94 = rtw_read32(Adapter, 0x4e94);
+	e9c = s9082c_read_bbreg(Adapter, 0x4e9c, 0xffffffff);
+
+	if (!(eac & BIT(28)) &&
+	    (((e94 >> 16) & 0x3ff) != 0x142) &&
+	    (((e9c >> 16) & 0x3ff) != 0x42))
+		return 0x01;
+
+	return 0x00;
+}
+
+static u8 s9082c_path_a_rx_iqk(PADAPTER Adapter)
+{
+	u32 eac, e94, e9c, ea4, u4tmp;
+
+	/* Stage 1: TX-side prep for RX IQK */
+	s9082c_write_bbreg(Adapter, 0x4e28, 0xffffff00, 0);
+	rtw_write32(Adapter, 0x4840, 0x701f0005);
+	rtw_write32(Adapter, 0x4840, 0xc0c00000);
+	rtw_write32(Adapter, 0x4840, 0xc00800f0);
+	rtw_write32(Adapter, 0x4840, 0xc0f488de);
+	s9082c_write_bbreg(Adapter, 0x4e28, 0xffffff00, 0x00808000);
+	rtw_write32(Adapter, 0x4e40, 0x80003e00);
+	rtw_write32(Adapter, 0x4e44, 0x81001200);
+	rtw_write32(Adapter, 0x4e30, 0x08003138);
+	rtw_write32(Adapter, 0x4e34, 0x0c003138);
+	rtw_write32(Adapter, 0x4e38, 0x41681020);
+	rtw_write32(Adapter, 0x4e3c, 0x14680000);
+	rtw_write32(Adapter, 0x4e4c, 0x00629588);
+	rtw_write32(Adapter, 0x4e48, 0x9f000000);
+	rtw_write32(Adapter, 0x4e48, 0x1f000000);
+	rtw_mdelay_os(10);
+
+	eac = rtw_read32(Adapter, 0x4eac);
+	e94 = rtw_read32(Adapter, 0x4e94);
+	e9c = s9082c_read_bbreg(Adapter, 0x4e9c, 0xffffffff);
+
+	if ((eac & BIT(28)) ||
+	    (((e94 >> 16) & 0x3ff) == 0x142) ||
+	    (((e9c >> 16) & 0x3ff) == 0x42))
+		return 0x00;
+
+	/* Stage 2: RX IQK */
+	u4tmp = 0x80007c00 | (e94 & 0x3ff0000) | ((e9c >> 16) & 0x3ff);
+	s9082c_write_bbreg(Adapter, 0x4e40, 0xffffffff, u4tmp);
+	rtw_write32(Adapter, 0x4e28, 0x00000000);
+	rtw_write32(Adapter, 0x4840, 0x701f0005);
+	rtw_write32(Adapter, 0x4840, 0xc0c00000);
+	rtw_write32(Adapter, 0x4840, 0xc00800f0);
+	rtw_write32(Adapter, 0x4840, 0xc0f4fe5f);
+	rtw_write32(Adapter, 0x4e28, 0x00010100);
+	rtw_write32(Adapter, 0x4e44, 0x80001200);
+	rtw_write32(Adapter, 0x4e30, 0x0c003138);
+	rtw_write32(Adapter, 0x4e34, 0x08003138);
+	rtw_write32(Adapter, 0x4e38, 0x416830a0);
+	rtw_write32(Adapter, 0x4e3c, 0x146830a0);
+	rtw_write32(Adapter, 0x4e4c, 0x00629588);
+	rtw_write32(Adapter, 0x4e48, 0x9f000000);
+	rtw_write32(Adapter, 0x4e48, 0x1f000000);
+	rtw_mdelay_os(10);
+
+	eac = rtw_read32(Adapter, 0x4eac);
+	ea4 = rtw_read32(Adapter, 0x4ea4);
+
+	if (!(eac & BIT(27)) &&
+	    (((ea4 >> 16) & 0x3ff) != 0x132) &&
+	    (((eac >> 16) & 0x3ff) != 0x36))
+		return 0x03;
+
+	return 0x01;
+}
+
+static void s9082c_iqk_single(PADAPTER Adapter, s32 result[][8], u8 t,
+			      u32 *adda_backup, u32 *iqk_bb_backup,
+			      u8 *raw_4522, u8 *raw_4550, u8 *raw_4551,
+			      u32 *raw_4040, u8 *pi_mode)
+{
+	static const u32 adda_regs[16] = {
+		0x485c, 0x4e6c, 0x4e70, 0x4e74, 0x4e78, 0x4e7c, 0x4e80, 0x4e84,
+		0x4e88, 0x4e8c, 0x4ed0, 0x4ed4, 0x4ed8, 0x4edc, 0x4ee0, 0x4eec
+	};
+	static const u32 iqk_bb_regs[9] = {
+		0x4c04, 0x4c08, 0x4874, 0x4b68, 0x4b6c, 0x4870, 0x4860, 0x4864, 0x4a04
+	};
+	u32 i;
+	u8 retry = 2, patha_ok;
+
+	if (t == 0) {
+		for (i = 0; i < 16; i++)
+			adda_backup[i] = rtw_read32(Adapter, adda_regs[i]);
+		*raw_4522 = rtw_read8(Adapter, 0x4522);
+		*raw_4550 = rtw_read8(Adapter, 0x4550);
+		*raw_4551 = rtw_read8(Adapter, 0x4551);
+		*raw_4040 = rtw_read32(Adapter, 0x4040);
+		for (i = 0; i < 9; i++)
+			iqk_bb_backup[i] = rtw_read32(Adapter, iqk_bb_regs[i]);
+	}
+
+	/* ADDA On for Path A */
+	rtw_write32(Adapter, 0x485c, 0xd0d8a405);
+	for (i = 1; i < 16; i++)
+		rtw_write32(Adapter, adda_regs[i], 0xd0dba405);
+
+	if (t == 0)
+		*pi_mode = (u8)s9082c_read_bbreg(Adapter, 0x4820, 0x100);
+
+	if (!(*pi_mode)) {
+		rtw_write32(Adapter, 0x4820, 0x80008000);
+		rtw_write32(Adapter, 0x4828, 0x80008000);
+	}
+
+	/* MAC settings for calibration */
+	rtw_write8(Adapter, 0x4522, 0xfc);
+	rtw_write8(Adapter, 0x4550, (*raw_4550) & ~0x10);
+	rtw_write8(Adapter, 0x4551, (*raw_4551) & ~0x10);
+	rtw_write8(Adapter, 0x4040, (u8)((*raw_4040) & 0xff) & ~0x04);
+
+	/* BB IQK common setup */
+	s9082c_write_bbreg(Adapter, 0x4a04, 0x0f000000, 0xf);
+	rtw_write32(Adapter, 0x4c04, 0xc0056a00);
+	rtw_write32(Adapter, 0x4c08, 0x00100027);
+	rtw_write32(Adapter, 0x4874, 0x44040200);
+	s9082c_write_bbreg(Adapter, 0x4870, BIT(10), 1);
+	s9082c_write_bbreg(Adapter, 0x4870, BIT(26), 1);
+	s9082c_write_bbreg(Adapter, 0x4860, BIT(10), 0);
+	s9082c_write_bbreg(Adapter, 0x4864, BIT(10), 0);
+	rtw_write32(Adapter, 0x4b68, 0xf0060000);
+	s9082c_write_bbreg(Adapter, 0x4e28, 0xffffff00, 0x00808000);
+	rtw_write32(Adapter, 0x4e40, 0x80003e00);
+	rtw_write32(Adapter, 0x4e44, 0x81001200);
+
+	/* TX IQK */
+	for (i = 0; i < retry; i++) {
+		patha_ok = s9082c_path_a_tx_iqk(Adapter);
+		if (patha_ok == 0x01) {
+			result[t][0] = (s32)((rtw_read32(Adapter, 0x4e94) >> 16) & 0x3ff);
+			result[t][1] = (s32)((s9082c_read_bbreg(Adapter, 0x4e9c, 0xffffffff) >> 16) & 0x3ff);
+			break;
+		}
+	}
+
+	/* RX IQK */
+	for (i = 0; i < retry; i++) {
+		patha_ok = s9082c_path_a_rx_iqk(Adapter);
+		if (patha_ok == 0x03) {
+			result[t][2] = (s32)((rtw_read32(Adapter, 0x4ea4) >> 16) & 0x3ff);
+			result[t][3] = (s32)((rtw_read32(Adapter, 0x4eac) >> 16) & 0x3ff);
+			break;
+		}
+	}
+
+	/* IQK block off */
+	s9082c_write_bbreg(Adapter, 0x4e28, 0xffffff00, 0);
+
+	if (t != 0) {
+		if (!(*pi_mode)) {
+			rtw_write32(Adapter, 0x4820, 0x80000000);
+			rtw_write32(Adapter, 0x4828, 0x80000000);
+		}
+		for (i = 0; i < 16; i++)
+			rtw_write32(Adapter, adda_regs[i], adda_backup[i]);
+		rtw_write8(Adapter, 0x4522, *raw_4522);
+		rtw_write8(Adapter, 0x4550, *raw_4550);
+		rtw_write8(Adapter, 0x4551, *raw_4551);
+		rtw_write32(Adapter, 0x4040, *raw_4040);
+		for (i = 0; i < 9; i++)
+			rtw_write32(Adapter, iqk_bb_regs[i], iqk_bb_backup[i]);
+		rtw_write32(Adapter, 0x4840, 0x00c074cb);
+		rtw_write32(Adapter, 0x4e30, 0x80003100);
+		rtw_write32(Adapter, 0x4e34, 0x80003100);
+	}
+}
+
+static bool s9082c_iqk_simularity(s32 result[][8], u8 c1, u8 c2)
+{
+	u32 i, j, diff, sim_bitmap = 0;
+	u8 final_candidate = 0xff;
+
+	for (i = 0; i < 4; i++) {
+		diff = (result[c1][i] > result[c2][i]) ?
+		       (result[c1][i] - result[c2][i]) :
+		       (result[c2][i] - result[c1][i]);
+		if (diff > 5) {
+			if (i == 2 && !sim_bitmap) {
+				if (result[c1][i] + result[c1][i + 1] == 0)
+					final_candidate = c2;
+				else if (result[c2][i] + result[c2][i + 1] == 0)
+					final_candidate = c1;
+				else
+					sim_bitmap |= (1 << i);
+			} else {
+				sim_bitmap |= (1 << i);
+			}
+		}
+	}
+
+	if (sim_bitmap == 0) {
+		if (final_candidate != 0xff) {
+			for (j = 0; j < 2; j++)
+				result[3][j] = result[final_candidate][j];
+			return false;
+		}
+		return true;
+	} else if (!(sim_bitmap & 0x0f)) {
+		for (i = 0; i < 4; i++)
+			result[3][i] = result[c1][i];
+		return false;
+	}
+
+	return false;
+}
+
+void s9082c_iq_calibrate(PADAPTER Adapter)
+{
+	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(Adapter);
+	struct dm_struct *dm = &pHalData->odmpriv;
+	s32 result[4][8];
+	u32 adda_backup[16];
+	u32 iqk_bb_backup[9];
+	u32 raw_4040 = 0;
+	u8 raw_4522 = 0, raw_4550 = 0, raw_4551 = 0, pi_mode = 0;
+	u8 t, final_candidate = 0xff;
+	s32 e94 = 0, e9c = 0, ea4 = 0, eac = 0, reg_tmp = 0;
+	u8 idx;
+
+	_rtw_memset(result, 0, sizeof(result));
+
+	for (t = 0; t < 3; t++) {
+		s9082c_iqk_single(Adapter, result, t, adda_backup, iqk_bb_backup,
+				  &raw_4522, &raw_4550, &raw_4551, &raw_4040, &pi_mode);
+		if (t == 1) {
+			if (s9082c_iqk_simularity(result, 0, 1)) {
+				final_candidate = 0;
+				break;
+			}
+		} else if (t == 2) {
+			if (s9082c_iqk_simularity(result, 0, 2)) {
+				final_candidate = 0;
+				break;
+			} else if (s9082c_iqk_simularity(result, 1, 2)) {
+				final_candidate = 1;
+				break;
+			} else {
+				for (idx = 0; idx < 4; idx++)
+					reg_tmp += result[3][idx];
+				final_candidate = (reg_tmp != 0) ? 3 : 0xff;
+			}
+		}
+	}
+
+	if (final_candidate != 0xff) {
+		e94 = result[final_candidate][0];
+		e9c = result[final_candidate][1];
+		ea4 = result[final_candidate][2];
+		eac = result[final_candidate][3];
+		dm->rf_calibrate_info.rege94 = e94;
+		dm->rf_calibrate_info.rege9c = e9c;
+	} else {
+		dm->rf_calibrate_info.rege94 = 0x100;
+		dm->rf_calibrate_info.rege9c = 0x0;
+	}
+
+	if (final_candidate != 0xff && result[final_candidate][0] != 0) {
+		s32 x = result[final_candidate][0];
+		s32 y = result[final_candidate][1];
+		s32 oldval_0 = (s32)(rtw_read32(Adapter, 0x4c80) >> 22);
+		s32 val_x, tx0_a, val_y, tx0_c;
+		u32 c4c;
+
+		if (x & 0x00000200)
+			x |= 0xfffffc00;
+		val_x = x * oldval_0;
+		tx0_a = (val_x >> 8) & 0x3ff;
+		s9082c_write_bbreg(Adapter, 0x4c80, 0x3ff, tx0_a);
+
+		c4c = rtw_read32(Adapter, 0x4c4c);
+		if ((val_x >> 7) & 0x1)
+			c4c |= 0x01000000;
+		else
+			c4c &= ~0x01000000;
+
+		if (y & 0x00000200)
+			y |= 0xfffffc00;
+		val_y = y * oldval_0;
+		tx0_c = val_y >> 8;
+		s9082c_write_bbreg(Adapter, 0x4c94, 0xf0000000, (tx0_c >> 6) & 0xf);
+		s9082c_write_bbreg(Adapter, 0x4c80, 0x003f0000, tx0_c & 0x3f);
+
+		if ((val_y >> 7) & 0x1)
+			c4c |= 0x04000000;
+		else
+			c4c &= ~0x04000000;
+		rtw_write32(Adapter, 0x4c4c, c4c);
+
+		if (result[final_candidate][2] != 0) {
+			u32 rx_x = result[final_candidate][2];
+			u32 rx_y = result[final_candidate][3];
+			s9082c_write_bbreg(Adapter, 0x4c14, 0x3ff, rx_x);
+			s9082c_write_bbreg(Adapter, 0x4c14, 0xfc00, rx_y & 0x3f);
+			s9082c_write_bbreg(Adapter, 0x4ca0, 0xf0000000, (rx_y >> 6) & 0xf);
+		}
+	}
+
+	RTW_INFO("S9082C IQK done: cand=%u e94=0x%x e9c=0x%x ea4=0x%x eac=0x%x\n",
+		 final_candidate, e94, e9c, ea4, eac);
 }

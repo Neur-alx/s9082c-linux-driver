@@ -3439,11 +3439,20 @@ static void rtw_hal_set_macaddr_port(_adapter *adapter, u8 *mac_addr)
 	rtw_halmac_set_mac_address(adapter_to_dvobj(adapter), hwport, mac_addr);
 #else /* !RTW_HALMAC */
 	{
+		_adapter *pri_adapter = GET_PRIMARY_ADAPTER(adapter);
 		u8 idx = 0;
 		u32 reg_macaddr = _get_macaddr_reg(hwport);
 
-		for (idx = 0; idx < ETH_ALEN; idx++)
-			rtw_write8(GET_PRIMARY_ADAPTER(adapter), (reg_macaddr + idx), mac_addr[idx]);
+		if (GET_HAL_DATA(pri_adapter)->is_s9082) {
+			u32 mac_lo = (u32)mac_addr[0] | ((u32)mac_addr[1] << 8) |
+				     ((u32)mac_addr[2] << 16) | ((u32)mac_addr[3] << 24);
+			rtw_write32(pri_adapter, reg_macaddr, mac_lo);
+			rtw_write8(pri_adapter, reg_macaddr + 4, mac_addr[4]);
+			rtw_write8(pri_adapter, reg_macaddr + 5, mac_addr[5]);
+		} else {
+			for (idx = 0; idx < ETH_ALEN; idx++)
+				rtw_write8(pri_adapter, (reg_macaddr + idx), mac_addr[idx]);
+		}
 	}
 #endif /* !RTW_HALMAC */
 }
@@ -3461,11 +3470,22 @@ static void rtw_hal_get_macaddr_port(_adapter *adapter, u8 *mac_addr)
 	rtw_halmac_get_mac_address(adapter_to_dvobj(adapter), hwport, mac_addr);
 #else /* !RTW_HALMAC */
 	{
+		_adapter *pri_adapter = GET_PRIMARY_ADAPTER(adapter);
 		u8 idx = 0;
 		u32 reg_macaddr = _get_macaddr_reg(hwport);
 
-		for (idx = 0; idx < ETH_ALEN; idx++)
-			mac_addr[idx] = rtw_read8(GET_PRIMARY_ADAPTER(adapter), (reg_macaddr + idx));
+		if (GET_HAL_DATA(pri_adapter)->is_s9082) {
+			u32 mac_lo = rtw_read32(pri_adapter, reg_macaddr);
+			mac_addr[0] = (u8)(mac_lo & 0xff);
+			mac_addr[1] = (u8)((mac_lo >> 8) & 0xff);
+			mac_addr[2] = (u8)((mac_lo >> 16) & 0xff);
+			mac_addr[3] = (u8)((mac_lo >> 24) & 0xff);
+			mac_addr[4] = rtw_read8(pri_adapter, reg_macaddr + 4);
+			mac_addr[5] = rtw_read8(pri_adapter, reg_macaddr + 5);
+		} else {
+			for (idx = 0; idx < ETH_ALEN; idx++)
+				mac_addr[idx] = rtw_read8(pri_adapter, (reg_macaddr + idx));
+		}
 	}
 #endif /* !RTW_HALMAC */
 
@@ -3506,7 +3526,8 @@ static void rtw_hal_set_bssid(_adapter *adapter, u8 *val)
 	u32 reg_bssid = _get_bssid_reg(hw_port);
 
 	if (GET_HAL_DATA(adapter)->is_s9082) {
-		rtw_write32(adapter, reg_bssid, *(u32 *)val);
+		u32 bssid_lo = (u32)val[0] | ((u32)val[1] << 8) | ((u32)val[2] << 16) | ((u32)val[3] << 24);
+		rtw_write32(adapter, reg_bssid, bssid_lo);
 		rtw_write8(adapter, reg_bssid + 4, s9082_bit_reverse8(val[4]));
 		rtw_write8(adapter, reg_bssid + 5, s9082_bit_reverse8(val[5]));
 	} else {
@@ -3896,8 +3917,8 @@ void rtw_hal_rcr_set_chk_bssid(_adapter *adapter, u8 self_action)
 	#endif
 #endif /* CONFIG_MI_WITH_MBSSID_CAM */
 
-	if (hal_data->is_s9082 && self_action == MLME_STA_CONNECTING)
-		rcr_new &= ~RCR_CBSSID_BCN;
+	if (hal_data->is_s9082 && (self_action == MLME_STA_CONNECTING || MSTATE_STA_LG_NUM(&mstate)))
+		rcr_new &= ~(RCR_CBSSID_BCN | RCR_CBSSID_DATA);
 
 	if (rcr == rcr_new)
 		return;
@@ -11702,7 +11723,10 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 		else /* Ad-hoc Mode */
 			RetryLimit = RL_VAL_AP;
 
-		rtw_iface_enable_tsf_update(adapter);
+		if (!hal_data->is_s9082)
+			rtw_iface_enable_tsf_update(adapter);
+		else
+			rtw_iface_disable_tsf_update(adapter);
 
 	} else if (type == 1) {
 		/* joinbss_event call back when join res < 0 */
@@ -11721,6 +11745,8 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 
 	} else if (type == 2) {
 		/* sta add event call back */
+		if (hal_data->is_s9082)
+			rtw_iface_enable_tsf_update(adapter);
 		if (check_fwstate(pmlmepriv, WIFI_ADHOC_STATE | WIFI_ADHOC_MASTER_STATE)) {
 			/* fixed beacon issue for 8191su........... */
 			rtw_write8(adapter, 0x542 , 0x02);
@@ -11748,7 +11774,10 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 		else /* Ad-hoc Mode */
 			RetryLimit = RL_VAL_AP;
 
-		rtw_iface_enable_tsf_update(adapter);
+		if (!hal_data->is_s9082)
+			rtw_iface_enable_tsf_update(adapter);
+		else
+			rtw_iface_disable_tsf_update(adapter);
 
 	} else if (type == 1) { /* joinbss_event call back when join res < 0 */
 		rtw_write16(adapter, REG_RXFLTMAP2, 0x00);
@@ -11756,6 +11785,8 @@ static void hw_var_set_mlme_join(_adapter *adapter, u8 type)
 		rtw_iface_disable_tsf_update(adapter);
 
 	} else if (type == 2) { /* sta add event call back */
+		if (hal_data->is_s9082)
+			rtw_iface_enable_tsf_update(adapter);
 		if (check_fwstate(pmlmepriv, WIFI_ADHOC_STATE | WIFI_ADHOC_MASTER_STATE))
 			RetryLimit = RL_VAL_AP;
 	}

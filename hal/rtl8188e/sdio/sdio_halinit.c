@@ -213,6 +213,9 @@ static u32 _InitPowerOn_8188ES(PADAPTER padapter)
 
 	RTW_INFO("=>%s\n", __FUNCTION__);
 
+	if (GET_HAL_DATA(padapter)->is_s9082 && GET_HAL_DATA(padapter)->bMacPwrCtrlOn == _TRUE)
+		return _SUCCESS;
+
 	ret = _CardEnable(padapter);
 	if (ret == _FAIL)
 		return ret;
@@ -233,7 +236,6 @@ static u32 _InitPowerOn_8188ES(PADAPTER padapter)
 		value16 |= 0x0008;
 		rtw_write16(padapter, REG_APS_FSMCO, value16);
 
-		rtw_write8(padapter, REG_CR, 0x00);
 		value16 = rtw_read16(padapter, REG_CR);
 		value16 |= 0x60fc;
 		rtw_write16(padapter, REG_CR, value16);
@@ -714,11 +716,16 @@ static void _InitAdaptiveCtrl(PADAPTER padapter)
 	u32	value32;
 
 	/* Response Rate Set */
-	value32 = rtw_read32(padapter, REG_RRSR);
-	value32 &= ~RATE_BITMAP_ALL;
-	value32 |= RATE_RRSR_CCK_ONLY_1M;
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		value32 = rtw_read32(padapter, 0x4440);
+		rtw_write32(padapter, 0x4440, (value32 & 0xff0f0000) | 0x00f0ff8f);
+	} else {
+		value32 = rtw_read32(padapter, REG_RRSR);
+		value32 &= ~RATE_BITMAP_ALL;
+		value32 |= RATE_RRSR_CCK_ONLY_1M;
 
-	rtw_phydm_set_rrsr(padapter, value32, TRUE);
+		rtw_phydm_set_rrsr(padapter, value32, TRUE);
+	}
 
 
 	/* CF-END Threshold */
@@ -752,6 +759,12 @@ static void _InitEDCA(PADAPTER padapter)
 		rtw_write32(padapter, REG_EDCA_BK_PARAM, 0x000025f2);
 		rtw_write32(padapter, REG_EDCA_VI_PARAM, 0x007ac524);
 		rtw_write32(padapter, REG_EDCA_VO_PARAM, 0x00f44564);
+
+		/* AlexELEC 0x6d508: RateFallback_init (ARFR0 & RARFRC) */
+		rtw_write32(padapter, 0x4430, 0x00000000);
+		rtw_write32(padapter, 0x4434, 0x08102020);
+		rtw_write32(padapter, 0x4438, 0x20c04080);
+		rtw_write32(padapter, 0x443c, 0x10e060a0);
 	} else {
 		/* Set Spec SIFS (used in NAV) */
 		rtw_write16(padapter, REG_SPEC_SIFS, 0x100a);
@@ -1343,9 +1356,11 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 		cr_val = rtw_read8(padapter, 0x4100);
 		rtw_write8(padapter, 0x4100, cr_val | 0x03);
 
-		/* 2. Unlink all MACIDs */
+		/* 2. Unlink all MACIDs & clear MACID pause */
 		rtw_write32(padapter, 0x4484, 0xffffffff);
 		rtw_write32(padapter, 0x4488, 0xffffffff);
+		rtw_write32(padapter, REG_MACID_PAUSE_0, 0);
+		rtw_write32(padapter, REG_MACID_PAUSE_1, 0);
 
 		/* 3. Packet lifetime (0x20002000 is bit-reversed 0x04000400) */
 		rtw_write32(padapter, 0x44c0, 0x20002000);
@@ -1462,7 +1477,11 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 			/*		dm_check_txpowertracking(padapter);
 			 *		phy_lc_calibrate(padapter); */
 
-			if (!pHalData->is_s9082) {
+			if (pHalData->is_s9082) {
+				s9082c_iq_calibrate(padapter);
+				pHalData->bIQKInitialized = _TRUE;
+				s9082c_lc_calibrate(padapter);
+			} else {
 				HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_PW_TRACK);
 				odm_txpowertracking_check(&pHalData->odmpriv);
 
@@ -1506,7 +1525,8 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 	HalQueryTxBufferStatus8189ESdio(padapter);
 	HalQueryTxOQTBufferStatus8189ESdio(padapter);
 	pHalData->SdioTxOQTMaxFreeSpace = pHalData->SdioTxOQTFreeSpace;
-	PHY_SetRFEReg_8188E(padapter);
+	if (!pHalData->is_s9082)
+		PHY_SetRFEReg_8188E(padapter);
 
 	if (pregistrypriv->wifi_spec) {
 		rtw_write16(padapter, REG_FAST_EDCA_CTRL , 0);
@@ -1515,7 +1535,10 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 	if (IS_HARDWARE_TYPE_8188ES(padapter)) {
 		value8 = rtw_read8(padapter, 0x4d3);
-		rtw_write8(padapter, 0x4d3, (value8 | (pHalData->is_s9082 ? 0x80 : 0x1)));
+		if (pHalData->is_s9082)
+			rtw_write8(padapter, 0x4d3, (value8 & ~0x01) | 0x80);
+		else
+			rtw_write8(padapter, 0x4d3, (value8 | 0x1));
 	}
 
 	/* pHalData->PreRpwmVal = PlatformEFSdioLocalCmd52Read1Byte(Adapter, SDIO_REG_HRPWM1)&0x80; */
@@ -1535,8 +1558,12 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 
 	/* enable tx DMA to drop the redundate data of packet */
-	rtw_write16(padapter, REG_TXDMA_OFFSET_CHK,
-		(rtw_read16(padapter, REG_TXDMA_OFFSET_CHK) | (pHalData->is_s9082 ? 0x4000 : DROP_DATA_EN)));
+	if (pHalData->is_s9082)
+		rtw_write16(padapter, REG_TXDMA_OFFSET_CHK,
+			(rtw_read16(padapter, REG_TXDMA_OFFSET_CHK) & ~DROP_DATA_EN) | 0x4000);
+	else
+		rtw_write16(padapter, REG_TXDMA_OFFSET_CHK,
+			(rtw_read16(padapter, REG_TXDMA_OFFSET_CHK) | DROP_DATA_EN));
 
 	/* #debug print for checking compile flags */
 	/* RTW_INFO("RTL8188E_FPGA_TRUE_PHY_VERIFICATION=%d\n", RTL8188E_FPGA_TRUE_PHY_VERIFICATION); */
@@ -1559,8 +1586,12 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 
 #ifdef CONFIG_XMIT_ACK
 	/* ack for xmit mgmt frames. */
-	rtw_write32(padapter, REG_FWHW_TXQ_CTRL,
-		rtw_read32(padapter, REG_FWHW_TXQ_CTRL) | (pHalData->is_s9082 ? 0x00000800 : BIT(12)));
+	if (pHalData->is_s9082)
+		rtw_write32(padapter, REG_FWHW_TXQ_CTRL,
+			(rtw_read32(padapter, REG_FWHW_TXQ_CTRL) & ~BIT(12)) | 0x00000800);
+	else
+		rtw_write32(padapter, REG_FWHW_TXQ_CTRL,
+			rtw_read32(padapter, REG_FWHW_TXQ_CTRL) | BIT(12));
 #endif /* CONFIG_XMIT_ACK */
 
 	if (padapter->registrypriv.wifi_spec == 1) {
@@ -1713,9 +1744,11 @@ readAdapterInfo_8188ES(
 	Hal_EfuseParseXtal_8188E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
 	Hal_EfuseParseCustomerID88E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
 	/* Hal_ReadAntennaDiversity88E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag); */
-	Hal_ReadPAType_8188E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
-	Hal_ReadAmplifierType_8188E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
-	Hal_ReadRFEType_8188E(padapter, pHalData->efuse_eeprom_data,  pHalData->bautoload_fail_flag);
+	if (!pHalData->is_s9082) {
+		Hal_ReadPAType_8188E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
+		Hal_ReadAmplifierType_8188E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
+		Hal_ReadRFEType_8188E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
+	}
 	Hal_EfuseParseBoardType88E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
 	Hal_ReadThermalMeter_88E(padapter, pHalData->efuse_eeprom_data, pHalData->bautoload_fail_flag);
 	/*  */
@@ -1738,8 +1771,13 @@ static void _ReadPROMContent(
 
 	/* check system boot selection */
 	eeValue = rtw_read8(padapter, REG_9346CR);
-	pHalData->EepromOrEfuse = (eeValue & BOOT_FROM_EEPROM) ? _TRUE : _FALSE;
-	pHalData->bautoload_fail_flag = (eeValue & EEPROM_EN) ? _FALSE : _TRUE;
+	if (pHalData->is_s9082) {
+		pHalData->EepromOrEfuse = (eeValue & BIT(3)) ? _TRUE : _FALSE;
+		pHalData->bautoload_fail_flag = (eeValue & BIT(2)) ? _FALSE : _TRUE;
+	} else {
+		pHalData->EepromOrEfuse = (eeValue & BOOT_FROM_EEPROM) ? _TRUE : _FALSE;
+		pHalData->bautoload_fail_flag = (eeValue & EEPROM_EN) ? _FALSE : _TRUE;
+	}
 
 	RTW_INFO("%s: 9346CR=0x%02X, Boot from %s, Autoload %s\n",
 		 __FUNCTION__, eeValue,

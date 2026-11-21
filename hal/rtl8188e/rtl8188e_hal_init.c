@@ -1151,6 +1151,21 @@ hal_EfusePowerSwitch_RTL8188E(
 	u8	tempval;
 	u16	tmpV16;
 
+	if (GET_HAL_DATA(pAdapter)->is_s9082) {
+		if (PwrState == _TRUE) {
+			rtw_write8(pAdapter, REG_EFUSE_ACCESS, 0x96);
+			tmpV16 = rtw_read16(pAdapter, REG_SYS_FUNC_EN);
+			if (!(tmpV16 & 0x0800))
+				rtw_write16(pAdapter, REG_SYS_FUNC_EN, tmpV16 | 0x0800);
+			tmpV16 = rtw_read16(pAdapter, REG_SYS_CLKR);
+			if ((tmpV16 & 0x0044) != 0x0044)
+				rtw_write16(pAdapter, REG_SYS_CLKR, tmpV16 | 0x0044);
+		} else {
+			rtw_write8(pAdapter, REG_EFUSE_ACCESS, 0x00);
+		}
+		return;
+	}
+
 	if (PwrState == _TRUE) {
 		rtw_write8(pAdapter, REG_EFUSE_ACCESS, EFUSE_ACCESS_ON);
 #if 0
@@ -2981,7 +2996,8 @@ Hal_EfuseParseIDCode88E(
 
 	/* Checl 0x8129 again for making sure autoload status!! */
 	EEPROMId = le16_to_cpu(*((u16 *)hwinfo));
-	if (EEPROMId != RTL_EEPROM_ID) {
+	if ((pHalData->is_s9082 && EEPROMId != 0x9082 && EEPROMId != RTL_EEPROM_ID) ||
+	    (!pHalData->is_s9082 && EEPROMId != RTL_EEPROM_ID)) {
 		RTW_INFO("EEPROM ID(%#x) is invalid!!\n", EEPROMId);
 		pHalData->bautoload_fail_flag = _TRUE;
 	} else
@@ -3997,10 +4013,13 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 			adapter->xmitpriv.nqos_ssn = s9082_bit_reverse16(adapter->xmitpriv.nqos_ssn);
 
 		if (pwrpriv->bkeepfwalive != _TRUE) {
+			u32 rel_bit = pHalData->is_s9082 ? 0x00040000 : RW_RELEASE_EN;
+			u32 idle_bit = pHalData->is_s9082 ? 0x00020000 : RXDMA_IDLE;
+
 			/* RX DMA stop */
-			rtw_write32(adapter, REG_RXPKT_NUM, (rtw_read32(adapter, REG_RXPKT_NUM) | RW_RELEASE_EN));
+			rtw_write32(adapter, REG_RXPKT_NUM, (rtw_read32(adapter, REG_RXPKT_NUM) | rel_bit));
 			do {
-				if (!(rtw_read32(adapter, REG_RXPKT_NUM) & RXDMA_IDLE))
+				if (!(rtw_read32(adapter, REG_RXPKT_NUM) & idle_bit))
 					break;
 			} while (trycnt--);
 			if (trycnt == 0)
@@ -4008,7 +4027,7 @@ u8 SetHwReg8188E(_adapter *adapter, u8 variable, u8 *val)
 
 			/* RQPN Load 0 */
 			rtw_write16(adapter, REG_RQPN_NPQ, 0x0);
-			rtw_write32(adapter, REG_RQPN, 0x80000000);
+			rtw_write32(adapter, REG_RQPN, pHalData->is_s9082 ? 0x01000000 : 0x80000000);
 			rtw_mdelay_os(10);
 		}
 	}

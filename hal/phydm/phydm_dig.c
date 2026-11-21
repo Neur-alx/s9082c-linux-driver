@@ -1577,7 +1577,8 @@ void phydm_false_alarm_counter_statistics(void *dm_void)
 		#endif
 	}
 
-	phydm_get_dbg_port_info(dm);
+	if (!(dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082))
+		phydm_get_dbg_port_info(dm);
 	phydm_false_alarm_counter_reg_reset(dm_void);
 
 	fa_t->time_fa_all = fa_t->cnt_fast_fsync * 12 +

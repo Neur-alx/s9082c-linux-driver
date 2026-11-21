@@ -49,5 +49,7 @@ u32 s9082c_read_rfreg(PADAPTER Adapter, enum rf_path eRFPath, u32 RegAddr, u32 B
 void s9082c_write_rfreg(PADAPTER Adapter, enum rf_path eRFPath, u32 RegAddr, u32 BitMask, u32 Data);
 void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwidth, u8 Offset40, u8 Offset80);
 void s9082c_set_bcn_related_regs(PADAPTER padapter);
+void s9082c_lc_calibrate(PADAPTER Adapter);
+void s9082c_iq_calibrate(PADAPTER Adapter);
 
 #endif /* __HAL8188E_S9082C_TABLES_H__ */

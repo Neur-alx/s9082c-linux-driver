@@ -16,6 +16,7 @@
 
 #include <drv_types.h>
 #include <hal_data.h>
+#include <hal8188e_s9082c_tables.h>
 
 #include "../hal/efuse/efuse_mask.h"
 
@@ -2157,6 +2158,26 @@ ReadEFuseByte(
 		Efuse_Read1ByteFromFakeContent(Adapter, _offset, pbuf);
 		return;
 	}
+	if (GET_HAL_DATA(Adapter) && GET_HAL_DATA(Adapter)->is_s9082) {
+		rtw_write8(Adapter, EFUSE_CTRL + 1, s9082_bit_reverse8((u8)(_offset & 0xff)));
+		readbyte = rtw_read8(Adapter, EFUSE_CTRL + 2);
+		rtw_write8(Adapter, EFUSE_CTRL + 2,
+			(readbyte & 0x3f) | s9082_bit_reverse8((u8)((_offset >> 8) & 0x03)));
+		readbyte = rtw_read8(Adapter, EFUSE_CTRL + 3);
+		rtw_write8(Adapter, EFUSE_CTRL + 3, (readbyte & 0xfe));
+
+		retry = 0;
+		value32 = rtw_read32(Adapter, EFUSE_CTRL);
+		while (!(value32 & BIT(24)) && (retry < 10000)) {
+			value32 = rtw_read32(Adapter, EFUSE_CTRL);
+			retry++;
+		}
+
+		rtw_udelay_os(50);
+		value32 = rtw_read32(Adapter, EFUSE_CTRL);
+		*pbuf = (u8)(value32 & 0xff);
+		return;
+	}
 	if (IS_HARDWARE_TYPE_8723B(Adapter)) {
 		/* <20130121, Kordan> For SMIC S55 EFUSE specificatoin. */
 		/* 0x34[11]: SW force PGMEN input of efuse to high. (for the bank selected by 0x34[9:8]) */
@@ -2261,14 +2282,28 @@ efuse_OneByteRead(
 	/* RTW_INFO("===> EFUSE_OneByteRead(), addr = %x\n", addr); */
 	/* RTW_INFO("===> EFUSE_OneByteRead() start, 0x34 = 0x%X\n", rtw_read32(pAdapter, EFUSE_TEST)); */
 
-	if (pHalData && pHalData->is_s9082) {
-		*data = 0xff;
-		return _FALSE;
-	}
-
 	if (bPseudoTest) {
 		bResult = Efuse_Read1ByteFromFakeContent(pAdapter, addr, data);
 		return bResult;
+	}
+
+	if (pHalData && pHalData->is_s9082) {
+		rtw_write8(pAdapter, EFUSE_CTRL + 1, s9082_bit_reverse8((u8)(addr & 0xff)));
+		rtw_write8(pAdapter, EFUSE_CTRL + 2,
+			(rtw_read8(pAdapter, EFUSE_CTRL + 2) & 0x3f) |
+			s9082_bit_reverse8((u8)((addr >> 8) & 0x03)));
+		rtw_write8(pAdapter, EFUSE_CTRL + 3, rtw_read8(pAdapter, EFUSE_CTRL + 3) & 0xfe);
+
+		while (!(rtw_read32(pAdapter, EFUSE_CTRL) & BIT(24)) && (tmpidx < 10000))
+			tmpidx++;
+
+		rtw_udelay_os(50);
+		if (tmpidx < 10000) {
+			*data = (u8)(rtw_read32(pAdapter, EFUSE_CTRL) & 0xff);
+			return _TRUE;
+		}
+		*data = 0xff;
+		return _FALSE;
 	}
 
 #ifdef CONFIG_RTL8710B

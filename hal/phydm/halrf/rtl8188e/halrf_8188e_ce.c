@@ -15,6 +15,7 @@
 
 #include "mp_precomp.h"
 #include "../../phydm_precomp.h"
+#include <hal8188e_s9082c_tables.h>
 
 /*---------------------------Define Local Constant---------------------------*/
 /* 2010/04/25 MH Define the max tx power tracking tx agc power. */
@@ -1314,8 +1315,11 @@ void phy_iq_calibrate_8188e(void *dm_void, boolean is_recovery)
 		REG_OFDM_0_XC_TX_AFE, REG_OFDM_0_XD_TX_AFE,
 		REG_OFDM_0_RX_IQ_EXT_ANTA};
 
-	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082)
+	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082) {
+		if (!is_recovery)
+			s9082c_iq_calibrate((PADAPTER)dm->adapter);
 		return;
+	}
 
 	if (is_recovery) {
 		RF_DBG(dm, DBG_RF_INIT, "%s: Return due to is_recovery!\n",
@@ -1440,8 +1444,10 @@ void phy_lc_calibrate_8188e(void *dm_void)
 {
 	struct dm_struct *dm = (struct dm_struct *)dm_void;
 
-	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082)
+	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082) {
+		s9082c_lc_calibrate((PADAPTER)dm->adapter);
 		return;
+	}
 
 	_phy_lc_calibrate_8188e(dm, false);
 }

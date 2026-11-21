@@ -1509,8 +1509,8 @@ void rtw_phydm_init(_adapter *adapter)
 	init_phydm_info(adapter);
 	odm_dm_init(phydm);
 	if (hal_data->is_s9082) {
-		/* SmartChip S9082C uses RF8353 (no IQK/LCK/thermal tracking) and bit-reversed BB regs */
-		phydm->rf_table.rf_supportability = 0;
+		/* SmartChip S9082C uses RF8353 (supports IQK/LCK, no thermal tracking) */
+		phydm->rf_table.rf_supportability = HAL_RF_IQK | HAL_RF_LCK;
 		phydm->support_ability &= ~(ODM_BB_ENV_MONITOR |
 					    ODM_BB_ADAPTIVITY |
 					    ODM_BB_DYNAMIC_TXPWR |
