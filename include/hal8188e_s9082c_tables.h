@@ -51,5 +51,6 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 void s9082c_set_bcn_related_regs(PADAPTER padapter);
 void s9082c_lc_calibrate(PADAPTER Adapter);
 void s9082c_iq_calibrate(PADAPTER Adapter);
+void s9082c_set_rf_path_switch(PADAPTER Adapter, bool is_main);
 
 #endif /* __HAL8188E_S9082C_TABLES_H__ */

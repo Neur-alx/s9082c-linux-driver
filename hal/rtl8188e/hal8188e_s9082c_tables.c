@@ -1637,11 +1637,13 @@ int s9082c_rf8353_config(PADAPTER Adapter)
 	/* 4. Restore rfintfs BIT4 */
 	s9082c_write_bbreg(Adapter, 0x4870, 0x10, rfintfs);
 
-	/* 5. Set default channel (Channel 1, 20MHz bandwidth) on RF reg 0x18 */
-	pHalData->RfRegChnlVal[RF_PATH_A] = 0x00000c01; /* 20MHz, Ch 1 */
-	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, pHalData->RfRegChnlVal[RF_PATH_A]);
+	/* 5. Initialize RF 0x18 shadow from RF register (step 87 set 0x0f407) */
+	pHalData->RfRegChnlVal[RF_PATH_A] = s9082c_read_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff);
+	if ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xf0000) == 0 && (pHalData->RfRegChnlVal[RF_PATH_A] & 0x0f000) == 0)
+		pHalData->RfRegChnlVal[RF_PATH_A] |= 0x0f000; /* Preserve bits [15:12] = 0xF from RF init */
 
-	RTW_INFO("%s: S9082C RF8353 transceiver configured successfully.\n", __FUNCTION__);
+	RTW_INFO("%s: S9082C RF8353 configured (RF 0x18 initial shadow=0x%05x).\n",
+		 __FUNCTION__, pHalData->RfRegChnlVal[RF_PATH_A]);
 	return _SUCCESS;
 }
 
@@ -1759,7 +1761,7 @@ static const struct s9082c_phy_step s9082c_phy_init_seq[] = {
 	{ OP_DIRECT, 0x4880, 0xffffffff, 0x0d003038 },
 	{ OP_DIRECT, 0x4884, 0xffffffff, 0x00000080 },
 	{ OP_DIRECT, 0x4888, 0xffffffff, 0x00000000 },
-	{ OP_BB_SET, 0x488c, 0xffff0000, 0x0000ccc0 },
+	{ OP_BB_SET, 0x488c, 0xffff0000, 0xccc0ccc0 },
 	{ OP_BB_SET, 0x488c, 0x0000ffff, 0xccc100c0 },
 	{ OP_BB_SET, 0x4890, 0xffff0000, 0x00000000 },
 	{ OP_BB_SET, 0x4890, 0x0000ffff, 0x00000800 },
@@ -1808,7 +1810,7 @@ static const struct s9082c_phy_step s9082c_phy_init_seq[] = {
 	{ OP_BB_SET, 0x4c00, 0x0000ffff, 0x18051d40 },
 	{ OP_DIRECT, 0x4c04, 0xffffffff, 0xc0056a88 },
 	{ OP_DIRECT, 0x4c08, 0xffffffff, 0x00000027 },
-	{ OP_DIRECT, 0x4c0c, 0xffffffff, 0x00003636 },
+	{ OP_DIRECT, 0x4c0c, 0xffffffff, 0x36363636 },
 	{ OP_BB_SET, 0x4c10, 0xffff0000, 0x00200880 },
 	{ OP_BB_SET, 0x4c10, 0x0000ffff, 0x08200000 },
 	{ OP_BB_SET, 0x4c14, 0xffff0000, 0x01004000 },
@@ -1922,16 +1924,16 @@ static const struct s9082c_phy_step s9082c_phy_init_seq[] = {
 	{ OP_DIRECT, 0x4d70, 0xffffffff, 0x18486c74 },
 	{ OP_DIRECT, 0x4d74, 0xffffffff, 0x4c344404 },
 	{ OP_DIRECT, 0x4d78, 0xffffffff, 0x00703c24 },
-	{ OP_DIRECT, 0x4e00, 0xffffffff, 0x00002d2d },
+	{ OP_DIRECT, 0x4e00, 0xffffffff, 0x2d2d2d2d },
 	{ OP_BB_SET, 0x4e04, 0xffff0000, 0x2e2e2d2d },
 	{ OP_BB_SET, 0x4e04, 0x0000ffff, 0x3f3f2d2d },
 	{ OP_BB_SET, 0x4e08, 0xffff0000, 0x09390390 },
 	{ OP_BB_SET, 0x4e08, 0x0000ffff, 0x3939272d },
 	{ OP_BB_SET, 0x4e10, 0xffff0000, 0x2e2e2d2d },
 	{ OP_BB_SET, 0x4e10, 0x0000ffff, 0x3e3e2d2d },
-	{ OP_DIRECT, 0x4e14, 0xffffffff, 0x0000b4b4 },
-	{ OP_DIRECT, 0x4e18, 0xffffffff, 0x0000b4b4 },
-	{ OP_DIRECT, 0x4e1c, 0xffffffff, 0x0000b4b4 },
+	{ OP_DIRECT, 0x4e14, 0xffffffff, 0xb4b4b4b4 },
+	{ OP_DIRECT, 0x4e18, 0xffffffff, 0xb4b4b4b4 },
+	{ OP_DIRECT, 0x4e1c, 0xffffffff, 0xb4b4b4b4 },
 	{ OP_DIRECT, 0x4e28, 0xffffffff, 0x00000000 },
 	{ OP_BB_SET, 0x4e30, 0xffff0000, 0x3e3e2d2d },
 	{ OP_BB_SET, 0x4e30, 0x0000ffff, 0x1000dc1f },
@@ -2187,12 +2189,16 @@ int s9082c_bb_config(PADAPTER Adapter)
 		rtw_udelay_os(1);
 	}
 
-	/* 5. Set crystal cap on reg 0x4024 */
+	/* 5. Set crystal cap on reg 0x4024 (via TDB_BBRegSet / bit-reversed) */
 	cap = pHalData->crystal_cap & 0x3f;
 	cap |= (cap << 6);
-	phy_set_bb_reg(Adapter, 0x4024, 0x7ff800, cap);
+	s9082c_write_bbreg(Adapter, 0x4024, 0x7ff800, cap);
 
-	RTW_INFO("%s: S9082C Baseband and AGC configured successfully.\n", __FUNCTION__);
+	/* 6. Configure RF Path Switch (Main Antenna) */
+	s9082c_set_rf_path_switch(Adapter, _TRUE);
+
+	RTW_INFO("%s: S9082C Baseband and AGC configured successfully (crystal_cap=0x%02x, val=0x%03x).\n",
+		 __FUNCTION__, pHalData->crystal_cap, cap);
 	return _SUCCESS;
 }
 
@@ -2310,6 +2316,7 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 {
 	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(Adapter);
 	u8 regBwOpMode;
+	u32 val;
 
 	if (channel == 0)
 		channel = 1;
@@ -2320,15 +2327,12 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 
 	rtw_hal_set_tx_power_level(Adapter, channel);
 
-	/* Set Channel and Bandwidth in RF8353 */
-	if (Bandwidth == CHANNEL_WIDTH_20) {
-		pHalData->RfRegChnlVal[RF_PATH_A] = ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffffc00) | 0x0c00 | channel);
-	} else {
-		pHalData->RfRegChnlVal[RF_PATH_A] = ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffff000) | 0x0400 | channel);
-	}
-	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, pHalData->RfRegChnlVal[RF_PATH_A]);
+	/* 1. tilk_SwChnl9083X: Update channel first */
+	val = (pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffffc00) | (channel & 0x3ff);
+	pHalData->RfRegChnlVal[RF_PATH_A] = val;
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, val);
 
-	/* Set MAC BWOPMODE (0x4603) and Baseband BW registers */
+	/* 2. tilk_SetBWMode9083X: Update MAC & Baseband BW registers */
 	regBwOpMode = rtw_read8(Adapter, 0x4603);
 	if (Bandwidth == CHANNEL_WIDTH_20) {
 		rtw_write8(Adapter, 0x4603, regBwOpMode | 0x20);
@@ -2344,7 +2348,16 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 		s9082c_write_bbreg(Adapter, 0x4818, 0xc000000, (Offset40 == 1) ? 2 : 1);
 	}
 
-	/* Spur calibration (tilk_SpurCalibration_9083X @ 0x6ad34) */
+	/* 3. _PHY_RF8353SetBandwidth_tll9083x: Update bandwidth in RF 0x18 */
+	if (Bandwidth == CHANNEL_WIDTH_20) {
+		val = pHalData->RfRegChnlVal[RF_PATH_A] | 0x0c00;
+	} else {
+		val = (pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffff3ff) | 0x0400;
+	}
+	pHalData->RfRegChnlVal[RF_PATH_A] = val;
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, val);
+
+	/* 4. Spur calibration (tilk_SpurCalibration_9083X @ 0x6ad34) */
 	if (channel == 13 || channel == 14 || (Bandwidth == CHANNEL_WIDTH_40 && channel == 11)) {
 		s9082c_write_bbreg(Adapter, 0x4c40, 0x200, 1);
 		s9082c_write_bbreg(Adapter, 0x4d3c, 0x1c0, 2);
@@ -2354,6 +2367,35 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 
 	/* Ensure packet reception filters remain active */
 	rtw_write16(Adapter, 0x46a4, 0xffff);
+
+	RTW_INFO("s9082c_set_chnl_bw: ch=%u bw=%u rf18=0x%05x\n", channel, Bandwidth, val);
+}
+
+void s9082c_set_rf_path_switch(PADAPTER Adapter, bool is_main)
+{
+	u8 ledcfg2;
+
+	/* 0x404e BIT0: LED/Antenna switch control (PHY_RF_Path_Switch_Set @ 0x7f230 in 9082xs_obj.o) */
+	ledcfg2 = rtw_read8(Adapter, 0x404e);
+	rtw_write8(Adapter, 0x404e, ledcfg2 | 0x01);
+
+	/* 0x4878 BIT13 (0x2000): FPGA0_XAB_RF_PARAMETER */
+	s9082c_write_bbreg(Adapter, 0x4878, 0x2000, 1);
+
+	/* 0x4870 BIT[9:8] (0x300): FPGA0_XAB_RF_INTERFACE_SW = 0 */
+	s9082c_write_bbreg(Adapter, 0x4870, 0x300, 0);
+
+	/* 0x4914 = 0x4080 (antenna mapping table, 16-bit direct write) */
+	rtw_write16(Adapter, 0x4914, 0x4080);
+
+	/* 0x4860 BIT[14:12] (0x7000): Tx antenna switch */
+	s9082c_write_bbreg(Adapter, 0x4860, 0x7000, is_main ? 1 : 0);
+
+	/* 0x4864 BIT[5:3] (0x38): Rx antenna switch */
+	s9082c_write_bbreg(Adapter, 0x4864, 0x38, is_main ? 1 : 0);
+
+	RTW_INFO("S9082C RF Path Switch set to %s (0x404e=0x%02x)\n",
+		 is_main ? "MAIN" : "AUX", ledcfg2 | 0x01);
 }
 
 void s9082c_set_bcn_related_regs(PADAPTER padapter)
@@ -2416,12 +2458,11 @@ void s9082c_lc_calibrate(PADAPTER Adapter)
 		rtw_write8(Adapter, 0x4522, 0x00);
 	}
 
-	/* Restore clean channel/BW word without bit 15 latched */
-	if (pHalData->RfRegChnlVal[RF_PATH_A] != 0)
-		s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff,
-				   pHalData->RfRegChnlVal[RF_PATH_A]);
+	/* Restore clean RF 0x18 word without bit 15 latched */
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, lc_cal & ~0x8000);
 
-	RTW_INFO("S9082C LCK done (tmpreg=0x%02x, lc_cal=0x%05x)\n", tmpreg, lc_cal);
+	RTW_INFO("S9082C LCK done (tmpreg=0x%02x, lc_cal=0x%05x restored=0x%05x)\n",
+		 tmpreg, lc_cal, lc_cal & ~0x8000);
 }
 
 static u8 s9082c_path_a_tx_iqk(PADAPTER Adapter)

@@ -964,10 +964,20 @@ static void _InitPABias(PADAPTER padapter)
 	u8			pa_setting = 0;
 
 	if (pHalData && pHalData->is_s9082) {
-		pa_setting = rtw_read8(padapter, 0x4016);
-		pa_setting &= 0xF0;
-		rtw_write8(padapter, 0x4016, pa_setting | 0x01);
-		rtw_write8(padapter, 0x4016, pa_setting | 0x09);
+		efuse_OneByteRead(padapter, 0x1FA, &pa_setting, _FALSE);
+		if (!(pa_setting & BIT0)) {
+			s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0x0FFFFF, 0x0F406);
+			s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0x0FFFFF, 0x4F406);
+			s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0x0FFFFF, 0x8F406);
+			s9082c_write_rfreg(padapter, RF_PATH_A, 0x15, 0x0FFFFF, 0xCF406);
+		}
+		if (!(pa_setting & BIT4)) {
+			pa_setting = rtw_read8(padapter, 0x4016);
+			pa_setting &= 0xF0;
+			rtw_write8(padapter, 0x4016, pa_setting | 0x01);
+			rtw_write8(padapter, 0x4016, pa_setting | 0x09);
+		}
+		RTW_INFO("%s: S9082C PA bias init complete (efuse 0x1FA=0x%02x)\n", __FUNCTION__, pa_setting);
 		return;
 	}
 
@@ -1481,6 +1491,7 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 				s9082c_iq_calibrate(padapter);
 				pHalData->bIQKInitialized = _TRUE;
 				s9082c_lc_calibrate(padapter);
+				s9082c_set_rf_path_switch(padapter, _TRUE);
 			} else {
 				HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_PW_TRACK);
 				odm_txpowertracking_check(&pHalData->odmpriv);

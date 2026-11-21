@@ -1533,6 +1533,13 @@ void phy_set_rf_path_switch_8188e(
 	return;
 #endif
 
+#if (DM_ODM_SUPPORT_TYPE == ODM_CE)
+	if (dm->adapter && GET_HAL_DATA((PADAPTER)dm->adapter)->is_s9082) {
+		s9082c_set_rf_path_switch((PADAPTER)dm->adapter, is_main);
+		return;
+	}
+#endif
+
 	{
 /* For 88C 1T1R */
 #if !((DM_ODM_SUPPORT_TYPE & ODM_AP) || (DM_ODM_SUPPORT_TYPE & ODM_CE))
