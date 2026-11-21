@@ -226,7 +226,7 @@ phydm_set_crystal_cap_reg(void *dm_void, u8 crystal_cap)
 		#if (RTL8188E_SUPPORT || RTL8188F_SUPPORT)
 		PADAPTER padapter = (PADAPTER)dm->adapter;
 		if (padapter && GET_HAL_DATA(padapter)->is_s9082) {
-			s9082c_write_bbreg(padapter, 0x402c, 0xfff000, reg_val);
+			s9082c_write_bbreg(padapter, 0x4024, 0x7ff800, reg_val);
 		} else {
 			/* write 0x24[22:17] = 0x24[16:11] = crystal_cap */
 			odm_set_mac_reg(dm, R_0x24, 0x7ff800, reg_val);

@@ -2187,10 +2187,10 @@ int s9082c_bb_config(PADAPTER Adapter)
 		rtw_udelay_os(1);
 	}
 
-	/* 5. Set crystal cap on reg 0x402c mask 0xfff000 (AlexELEC tdb_Set_Crystal_Cap @ 0x77c70) */
+	/* 5. Set crystal cap on reg 0x4024 mask 0x7ff800 (AlexELEC CrystalCap_ProSet_Hal @ 0x8252c) */
 	cap = pHalData->crystal_cap & 0x3f;
 	cap |= (cap << 6);
-	s9082c_write_bbreg(Adapter, 0x402c, 0xfff000, cap);
+	s9082c_write_bbreg(Adapter, 0x4024, 0x7ff800, cap);
 
 	/* 6. Configure RF Path Switch (Main Antenna) */
 	s9082c_set_rf_path_switch(Adapter, _TRUE);
