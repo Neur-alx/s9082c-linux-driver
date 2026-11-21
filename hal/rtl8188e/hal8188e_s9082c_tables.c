@@ -1637,10 +1637,8 @@ int s9082c_rf8353_config(PADAPTER Adapter)
 	/* 4. Restore rfintfs BIT4 */
 	s9082c_write_bbreg(Adapter, 0x4870, 0x10, rfintfs);
 
-	/* 5. Initialize RF 0x18 shadow from RF register (step 87 set 0x0f407) */
-	pHalData->RfRegChnlVal[RF_PATH_A] = s9082c_read_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff);
-	if ((pHalData->RfRegChnlVal[RF_PATH_A] & 0xf0000) == 0 && (pHalData->RfRegChnlVal[RF_PATH_A] & 0x0f000) == 0)
-		pHalData->RfRegChnlVal[RF_PATH_A] |= 0x0f000; /* Preserve bits [15:12] = 0xF from RF init */
+	/* 5. Initialize RF 0x18 shadow to 0 (matches AlexELEC tilk_RF8353_Config9083X) */
+	pHalData->RfRegChnlVal[RF_PATH_A] = 0;
 
 	RTW_INFO("%s: S9082C RF8353 configured (RF 0x18 initial shadow=0x%05x).\n",
 		 __FUNCTION__, pHalData->RfRegChnlVal[RF_PATH_A]);
@@ -2189,10 +2187,10 @@ int s9082c_bb_config(PADAPTER Adapter)
 		rtw_udelay_os(1);
 	}
 
-	/* 5. Set crystal cap on reg 0x4024 (via TDB_BBRegSet / bit-reversed) */
+	/* 5. Set crystal cap on reg 0x402c mask 0xfff000 (AlexELEC tdb_Set_Crystal_Cap @ 0x77c70) */
 	cap = pHalData->crystal_cap & 0x3f;
 	cap |= (cap << 6);
-	s9082c_write_bbreg(Adapter, 0x4024, 0x7ff800, cap);
+	s9082c_write_bbreg(Adapter, 0x402c, 0xfff000, cap);
 
 	/* 6. Configure RF Path Switch (Main Antenna) */
 	s9082c_set_rf_path_switch(Adapter, _TRUE);

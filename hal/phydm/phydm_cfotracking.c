@@ -24,6 +24,7 @@
  *****************************************************************************/
 #include "mp_precomp.h"
 #include "phydm_precomp.h"
+#include "hal8188e_s9082c_tables.h"
 
 static s32 phydm_get_cfo_hz(void *dm_void, u32 val, u8 bit_num, u8 frac_num)
 {
@@ -223,8 +224,13 @@ phydm_set_crystal_cap_reg(void *dm_void, u8 crystal_cap)
 
 	if (dm->support_ic_type & (ODM_RTL8188E | ODM_RTL8188F)) {
 		#if (RTL8188E_SUPPORT || RTL8188F_SUPPORT)
-		/* write 0x24[22:17] = 0x24[16:11] = crystal_cap */
-		odm_set_mac_reg(dm, R_0x24, 0x7ff800, reg_val);
+		PADAPTER padapter = (PADAPTER)dm->adapter;
+		if (padapter && GET_HAL_DATA(padapter)->is_s9082) {
+			s9082c_write_bbreg(padapter, 0x402c, 0xfff000, reg_val);
+		} else {
+			/* write 0x24[22:17] = 0x24[16:11] = crystal_cap */
+			odm_set_mac_reg(dm, R_0x24, 0x7ff800, reg_val);
+		}
 		#endif
 	}
 	#if (RTL8812A_SUPPORT)
