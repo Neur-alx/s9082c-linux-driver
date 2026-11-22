@@ -1637,8 +1637,8 @@ int s9082c_rf8353_config(PADAPTER Adapter)
 	/* 4. Restore rfintfs BIT4 */
 	s9082c_write_bbreg(Adapter, 0x4870, 0x10, rfintfs);
 
-	/* 5. Initialize RF 0x18 shadow to 0 (matches AlexELEC tilk_RF8353_Config9083X) */
-	pHalData->RfRegChnlVal[RF_PATH_A] = 0;
+	/* 5. Initialize RF 0x18 shadow to radio table default (0x0f407, preserves bits [19:12]) */
+	pHalData->RfRegChnlVal[RF_PATH_A] = 0x0f407;
 
 	RTW_INFO("%s: S9082C RF8353 configured (RF 0x18 initial shadow=0x%05x).\n",
 		 __FUNCTION__, pHalData->RfRegChnlVal[RF_PATH_A]);
@@ -2325,6 +2325,10 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 
 	rtw_hal_set_tx_power_level(Adapter, channel);
 
+	/* Guard: Ensure upper synthesizer PLL bits [19:12] remain preserved */
+	if ((pHalData->RfRegChnlVal[RF_PATH_A] & 0x0f000) == 0)
+		pHalData->RfRegChnlVal[RF_PATH_A] |= 0x0f400;
+
 	/* 1. tilk_SwChnl9083X: Update channel first */
 	val = (pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffffc00) | (channel & 0x3ff);
 	pHalData->RfRegChnlVal[RF_PATH_A] = val;
@@ -2456,11 +2460,11 @@ void s9082c_lc_calibrate(PADAPTER Adapter)
 		rtw_write8(Adapter, 0x4522, 0x00);
 	}
 
-	/* Restore clean RF 0x18 word without bit 15 latched */
-	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, lc_cal & ~0x8000);
+	/* Restore clean RF 0x18 word */
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, lc_cal);
 
 	RTW_INFO("S9082C LCK done (tmpreg=0x%02x, lc_cal=0x%05x restored=0x%05x)\n",
-		 tmpreg, lc_cal, lc_cal & ~0x8000);
+		 tmpreg, lc_cal, lc_cal);
 }
 
 static u8 s9082c_path_a_tx_iqk(PADAPTER Adapter)

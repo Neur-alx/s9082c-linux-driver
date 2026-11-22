@@ -3528,8 +3528,8 @@ static void rtw_hal_set_bssid(_adapter *adapter, u8 *val)
 	if (GET_HAL_DATA(adapter)->is_s9082) {
 		u32 bssid_lo = (u32)val[0] | ((u32)val[1] << 8) | ((u32)val[2] << 16) | ((u32)val[3] << 24);
 		rtw_write32(adapter, reg_bssid, bssid_lo);
-		rtw_write8(adapter, reg_bssid + 4, s9082_bit_reverse8(val[4]));
-		rtw_write8(adapter, reg_bssid + 5, s9082_bit_reverse8(val[5]));
+		rtw_write8(adapter, reg_bssid + 4, val[4]);
+		rtw_write8(adapter, reg_bssid + 5, val[5]);
 	} else {
 		for (idx = 0 ; idx < ETH_ALEN; idx++)
 			rtw_write8(adapter, (reg_bssid + idx), val[idx]);

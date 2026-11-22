@@ -177,6 +177,10 @@ MODULE_PARM_DESC(rtw_mp_customer_str, "Whether or not to enable customer str sup
 
 int rtw_software_encrypt = 0;
 int rtw_software_decrypt = 0;
+module_param(rtw_software_encrypt, int, 0644);
+module_param(rtw_software_decrypt, int, 0644);
+MODULE_PARM_DESC(rtw_software_encrypt, "Enable software encryption (0:HW, 1:SW)");
+MODULE_PARM_DESC(rtw_software_decrypt, "Enable software decryption (0:HW, 1:SW)");
 
 int rtw_acm_method = 0;/* 0:By SW 1:By HW. */
 
