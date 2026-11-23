@@ -2359,6 +2359,13 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 	pHalData->RfRegChnlVal[RF_PATH_A] = val;
 	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, val);
 
+	/* S9082C-DIAG: echter RF-Readback (0x4824-Pfad, NICHT 0x4840!) — zeigt, ob der
+	 * RF8353 den geschriebenen Kanal wirklich übernommen hat. */
+	{
+		u32 rf18_rb = s9082c_read_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff);
+		RTW_INFO("S9RF18: ch=%u req=0x%05x rb=0x%05x\n", channel, val, rf18_rb);
+	}
+
 	/* 4. Spur calibration (tilk_SpurCalibration_9083X @ 0x6ad34) */
 	if (channel == 13 || channel == 14 || (Bandwidth == CHANNEL_WIDTH_40 && channel == 11)) {
 		s9082c_write_bbreg(Adapter, 0x4c40, 0x200, 1);
