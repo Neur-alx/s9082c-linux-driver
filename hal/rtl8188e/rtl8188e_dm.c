@@ -30,6 +30,15 @@
 /* ************************************************************
  * Global var
  * ************************************************************ */
+
+/* S9082C: disable the periodic PHYDM watchdog. On the S9082C (bit-reversed
+ * baseband register layout) the generic PHYDM watchdog writes unmirrored
+ * RMW values into the AGC/DIG registers (0xc00/0xd00/0xc0c/0xc50/0xa2c/0xf14)
+ * every ~2 s, corrupting the receiver. Default 0; set to 1 to work around. */
+int rtw_s9082_disable_phydm = 0;
+module_param(rtw_s9082_disable_phydm, int, 0644);
+MODULE_PARM_DESC(rtw_s9082_disable_phydm, "S9082C: disable PHYDM watchdog to stop AGC/DIG corruption");
+
 #ifdef CONFIG_SUPPORT_HW_WPS_PBC
 static void dm_CheckPbcGPIO(_adapter *padapter)
 {
@@ -224,6 +233,11 @@ rtl8188e_HalDmWatchDog(
 	struct dm_struct		*pDM_Odm = &(pHalData->odmpriv);
 	struct pwrctrl_priv *pwrpriv = adapter_to_pwrctl(Adapter);
 	u8 in_lps = _FALSE;
+
+	/* S9082C: the generic PHYDM watchdog corrupts the bit-reversed AGC/DIG
+	 * registers on this chip at runtime. Allow disabling it (module param). */
+	if (rtw_s9082_disable_phydm && pHalData->is_s9082)
+		return;
 
 	if (!rtw_is_hw_init_completed(Adapter))
 		goto skip_dm;

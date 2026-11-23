@@ -243,6 +243,36 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 
 			pattrib = &precvframe->u.hdr.attrib;
 
+			/* S9082C RX probe (before crc_err early-break, so crc=1 frames
+			 * are seen regardless of RCR_ACRC32). Prints the real RX decode
+			 * channel (pattrib->ch) + crc/icv/rate for the target BSSID, and
+			 * a rate-limited sample of any beacon with its decode channel. */
+			if (pattrib->pkt_len >= 24) {
+				u32 _rsz = RXDESC_SIZE + pattrib->drvinfo_sz;
+				if (rtw_hal_rcr_check(padapter, RCR_APP_BA_SSN))
+					_rsz += 4;
+				if (((u32)transfer_len) >= (_rsz + pattrib->shift_sz + 24)) {
+					u8 *hdr = ptr + _rsz + pattrib->shift_sz;
+					u8 b0 = hdr[16], b1 = hdr[17], b2 = hdr[18];
+					u8 b3 = hdr[19], b4 = hdr[20], b5 = hdr[21];
+					if (b0 == 0x3c && b1 == 0xa6 && b2 == 0x2f &&
+					    b3 == 0x06 && b4 == 0x2d && b5 == 0xf7) {
+						pr_info("S9RAW_FB: len=%u crc=%u icv=%u rate=%u rxch=%u cur=%u\n",
+							pattrib->pkt_len, pattrib->crc_err, pattrib->icv_err,
+							pattrib->data_rate, pattrib->ch,
+							GET_HAL_DATA(padapter)->current_channel);
+					} else if (hdr[0] == 0x80) {
+						static u32 s9raw_any;
+						if (s9raw_any < 20) {
+							s9raw_any++;
+							pr_info("S9RAW_ANY: bssid=%pM crc=%u rate=%u rxch=%u cur=%u\n",
+								hdr + 16, pattrib->crc_err, pattrib->data_rate,
+								pattrib->ch, GET_HAL_DATA(padapter)->current_channel);
+						}
+					}
+				}
+			}
+
 			/* fix Hardware RX data error, drop whole recv_buffer */
 			if (!rtw_hal_rcr_check(padapter, RCR_ACRC32) && pattrib->crc_err) {
 #if !(MP_DRIVER == 1)
