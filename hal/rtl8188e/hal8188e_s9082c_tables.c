@@ -2332,13 +2332,7 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 	/* 1. tilk_SwChnl9083X: Update channel first */
 	val = (pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffffc00) | (channel & 0x3ff);
 	pHalData->RfRegChnlVal[RF_PATH_A] = val;
-	/* S9082C-FIX: write the RF 3-wire register (0x4840) RAW, exactly like the
-	 * working init sequence s9082c_rf_init_seq (rtw_write32(0x4840, ...)).
-	 * s9082c_write_rfreg() routes through s9082c_write_bbreg(0x4840) which
-	 * bit-reverses (0x4840 is not in the _nd list) -> the RF8353 synth never
-	 * locks to the commanded channel and stays on the last scan channel. */
-	rtw_write32(Adapter, pHalData->PHYRegDef[RF_PATH_A].rf3wireOffset,
-		    ((u32)0x18 << 20) | (val & 0xfffff));
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, val);
 
 	/* 2. tilk_SetBWMode9083X: Update MAC & Baseband BW registers */
 	regBwOpMode = rtw_read8(Adapter, 0x4603);
@@ -2363,9 +2357,7 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 		val = (pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffff3ff) | 0x0400;
 	}
 	pHalData->RfRegChnlVal[RF_PATH_A] = val;
-	/* S9082C-FIX: raw 3-wire write (see note above). */
-	rtw_write32(Adapter, pHalData->PHYRegDef[RF_PATH_A].rf3wireOffset,
-		    ((u32)0x18 << 20) | (val & 0xfffff));
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, val);
 
 	/* 4. Spur calibration (tilk_SpurCalibration_9083X @ 0x6ad34) */
 	if (channel == 13 || channel == 14 || (Bandwidth == CHANNEL_WIDTH_40 && channel == 11)) {

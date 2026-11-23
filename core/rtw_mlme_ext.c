@@ -21,6 +21,15 @@
 #include <hal_data.h>
 
 
+/* S9082C diagnostic (PDF-Kanal-6-Modus): force the scan channel.
+ * 0xFF = off (normal). Set to e.g. 6 to confine all scan/render to ch6,
+ * so the synthesizer never hops to ch11 and a stale scan-restore can't
+ * leave the radio off the join channel. */
+int rtw_s9082_fixchan = 0xFF;
+module_param(rtw_s9082_fixchan, int, 0644);
+MODULE_PARM_DESC(rtw_s9082_fixchan, "S9082C diag: force scan channel (0xFF=off, e.g. 6)");
+
+
 struct mlme_handler mlme_sta_tbl[] = {
 	{WIFI_ASSOCREQ,		"OnAssocReq",	&OnAssocReq},
 	{WIFI_ASSOCRSP,		"OnAssocRsp",	&OnAssocRsp},
@@ -14643,6 +14652,10 @@ static u8 sitesurvey_pick_ch_behavior(_adapter *padapter, u8 *ch, RT_SCAN_TYPE *
 	if (pmlmeext->fixed_chan != 0xff && next_state == SCAN_PROCESS)
 		scan_ch = pmlmeext->fixed_chan;
 #endif
+
+	/* S9082C diagnostic: confine scan to a fixed channel (PDF channel-6 mode). */
+	if (rtw_s9082_fixchan != 0xFF && scan_ch != 0)
+		scan_ch = rtw_s9082_fixchan;
 
 	if (ch)
 		*ch = scan_ch;
