@@ -910,6 +910,11 @@ static void _InitInterrupt(PADAPTER padapter)
 	/* HIMR - turn all off */
 	rtw_write32(padapter, REG_HIMR_88E, 0);
 
+	/* S9082C-FIX: MAC-HIMRE (REG_HIMRE_88E, S9082C-Alias 0x40b4) = 0xffffffff
+	 * setzen (Blob _hal_init_tll9083xs macht 0x40b0=0 + 0x40b4=0xffffffff).
+	 * Ohne HIMRE-Init bleibt die High-IRQ-Mask der 8051 im Reset -> STA-RX-Kill. */
+	rtw_write32(padapter, REG_HIMRE_88E, 0xFFFFFFFF);
+
 	/*  */
 	/* Initialize and enable SDIO Host Interrupt. */
 	/*  */
