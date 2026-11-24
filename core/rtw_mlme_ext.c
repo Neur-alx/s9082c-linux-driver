@@ -29,6 +29,10 @@ int rtw_s9082_fixchan = 0xFF;
 module_param(rtw_s9082_fixchan, int, 0644);
 MODULE_PARM_DESC(rtw_s9082_fixchan, "S9082C diag: force scan channel (0xFF=off, e.g. 6)");
 
+int rtw_s9082_skip_iqk = 0;
+module_param(rtw_s9082_skip_iqk, int, 0644);
+MODULE_PARM_DESC(rtw_s9082_skip_iqk, "S9082C diag: skip IQK/LCK at init (1=skip, stabilizes marginal boot)");
+
 
 struct mlme_handler mlme_sta_tbl[] = {
 	{WIFI_ASSOCREQ,		"OnAssocReq",	&OnAssocReq},

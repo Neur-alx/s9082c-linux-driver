@@ -18,6 +18,8 @@
 #include <rtl8188e_hal.h>
 #include "hal8188e_s9082c_tables.h"
 #include "hal_com_h2c.h"
+
+extern int rtw_s9082_skip_iqk;	/* S9082C-DIAG (core/rtw_mlme_ext.c) */
 #ifndef CONFIG_SDIO_HCI
 	#error "CONFIG_SDIO_HCI shall be on!\n"
 #endif
@@ -1488,7 +1490,11 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 			 *		phy_lc_calibrate(padapter); */
 
 			if (pHalData->is_s9082) {
-				s9082c_iq_calibrate(padapter);
+				/* S9082C-DIAG: rtw_s9082_skip_iqk=1 ueberspringt IQK/LCK (stabilisiert
+				 * marginale Init; s9082c_iq_calibrate/Stage-2 laesst sonst Register
+				 * wie 0x4e40..0x4e4c/RF0x30..32 im nicht-restaurierten Zustand). */
+				if (!rtw_s9082_skip_iqk)
+					s9082c_iq_calibrate(padapter);
 				pHalData->bIQKInitialized = _TRUE;
 				s9082c_lc_calibrate(padapter);
 				s9082c_set_rf_path_switch(padapter, _TRUE);
