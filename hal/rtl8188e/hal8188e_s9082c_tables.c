@@ -1637,8 +1637,11 @@ int s9082c_rf8353_config(PADAPTER Adapter)
 	/* 4. Restore rfintfs BIT4 */
 	s9082c_write_bbreg(Adapter, 0x4870, 0x10, rfintfs);
 
-	/* 5. Initialize RF 0x18 shadow to radio table default (0x0f407, preserves bits [19:12]) */
-	pHalData->RfRegChnlVal[RF_PATH_A] = 0x0f407;
+	/* 5. Initialize RF 0x18 shadow to radio table default (0x07407, bit15/LCK=0).
+	 * S9082C-FIX: Bit 15 (0x8000) is the LCK (LC-tank/VCO) calibration trigger.
+	 * The init sequence triggers it ONCE (with a 100ms delay); the shadow must
+	 * keep bit15=0 so channel-set writes don't re-trigger the LCK. */
+	pHalData->RfRegChnlVal[RF_PATH_A] = 0x07407;
 
 	RTW_INFO("%s: S9082C RF8353 configured (RF 0x18 initial shadow=0x%05x).\n",
 		 __FUNCTION__, pHalData->RfRegChnlVal[RF_PATH_A]);
@@ -2325,9 +2328,14 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 
 	rtw_hal_set_tx_power_level(Adapter, channel);
 
-	/* Guard: Ensure upper synthesizer PLL bits [19:12] remain preserved */
-	if ((pHalData->RfRegChnlVal[RF_PATH_A] & 0x0f000) == 0)
-		pHalData->RfRegChnlVal[RF_PATH_A] |= 0x0f400;
+	/* Guard: Ensure upper synthesizer PLL bits [19:12] remain preserved.
+	 * S9082C-FIX: Bit 15 (0x8000) is the LCK (LC-tank/VCO) calibration trigger.
+	 * It must be 0 in channel-set writes — the init triggers the LCK once with a
+	 * 100ms delay; re-setting it here (every channel change) re-triggers the VCO
+	 * calibration mid-lock. Mask it off. */
+	if ((pHalData->RfRegChnlVal[RF_PATH_A] & 0x07000) == 0)
+		pHalData->RfRegChnlVal[RF_PATH_A] |= 0x07400;
+	pHalData->RfRegChnlVal[RF_PATH_A] &= ~0x8000;
 
 	/* 1. tilk_SwChnl9083X: Update channel first */
 	val = (pHalData->RfRegChnlVal[RF_PATH_A] & 0xfffffc00) | (channel & 0x3ff);
