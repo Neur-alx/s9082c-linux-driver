@@ -2801,7 +2801,11 @@ void s9082c_iq_calibrate(PADAPTER Adapter)
 			c4c &= ~0x04000000;
 		rtw_write32(Adapter, 0x4c4c, c4c);
 
-		if (result[final_candidate][2] != 0) {
+		/* S9082C-FIX (marginale Init): RX-I/Q-Matrix-Write aus 0x4ea4/0x4eac
+		 * (roh per rtw_read32 gelesen, 0x4e9c bit-gespiegelt) korrumpiert bei
+		 * analogem Rauschen (ea4!=0) die Matrix 0x4c14/0x4ca0 -> RX nie alive.
+		 * Uebersprungen -> Init-Defaults (0x0) bleiben stehen (= guter Boot). */
+		if (0 && result[final_candidate][2] != 0) {
 			u32 rx_x = result[final_candidate][2];
 			u32 rx_y = result[final_candidate][3];
 			s9082c_write_bbreg(Adapter, 0x4c14, 0x3ff, rx_x);
