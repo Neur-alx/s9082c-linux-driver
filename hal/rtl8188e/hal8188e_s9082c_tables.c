@@ -2318,10 +2318,6 @@ void s9082c_write_rfreg(PADAPTER Adapter, enum rf_path eRFPath, u32 RegAddr, u32
 
 	DataAndAddr = ((RegAddr << 20) | (Data & 0xfffff));
 	s9082c_write_bbreg(Adapter, pPhyReg->rf3wireOffset, 0xffffffff, DataAndAddr);
-	/* S9082C-FIX: Blob macht TDB_us_delay(1) nach jedem 0x4840-3-Wire-Write
-	 * (78bf8/78c14/7b7f4/...). Ohne Delay greift der VCO-Relock nicht ->
-	 * Kanal bleibt auf altem VCO (ch6) kleben. */
-	rtw_udelay_os(1);
 }
 
 void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwidth, u8 Offset40, u8 Offset80)
