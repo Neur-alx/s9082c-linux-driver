@@ -3528,8 +3528,11 @@ static void rtw_hal_set_bssid(_adapter *adapter, u8 *val)
 	if (GET_HAL_DATA(adapter)->is_s9082) {
 		u32 bssid_lo = (u32)val[0] | ((u32)val[1] << 8) | ((u32)val[2] << 16) | ((u32)val[3] << 24);
 		rtw_write32(adapter, reg_bssid, bssid_lo);
-		rtw_write8(adapter, reg_bssid + 4, val[4]);
-		rtw_write8(adapter, reg_bssid + 5, val[5]);
+		/* S9082C-FIX: BSSID-Bytes 4,5 muessen bit-gespiegelt werden (Blob hw_reg 0x4618:
+		 * Bytes 0-3 roh, Bytes 4,5 via s9082_bit_reverse8). Port schrieb roh ->
+		 * BSSID-Filter matchte nicht -> CBSSID_BCN droppte im STA alle Beacons. */
+		rtw_write8(adapter, reg_bssid + 4, s9082_bit_reverse8(val[4]));
+		rtw_write8(adapter, reg_bssid + 5, s9082_bit_reverse8(val[5]));
 	} else {
 		for (idx = 0 ; idx < ETH_ALEN; idx++)
 			rtw_write8(adapter, (reg_bssid + idx), val[idx]);
