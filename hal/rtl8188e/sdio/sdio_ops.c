@@ -15,6 +15,7 @@
 #define _SDIO_OPS_C_
 
 #include <rtl8188e_hal.h>
+#include "hal8188e_s9082c_tables.h"
 
 /* #define SDIO_DEBUG_IO 1 */
 
@@ -1794,7 +1795,7 @@ u8 HalQueryTxOQTBufferStatus8189ESdio(PADAPTER padapter)
 	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(padapter);
 	u8 val8 = SdioLocalCmd52Read1Byte(padapter, 0x0025/*SDIO_REG_OQT_FREE_PG*/);
 	if (pHalData && pHalData->is_s9082)
-		val8 = s9082_bit_reverse8(val8);	/* 8-bit rev, nicht 16-bit permute! */
+		val8 = (u8)s9082_permute16(val8);	/* 4-bit Nibble-Permutation, kein Nibble-Swap! */
 	pHalData->SdioTxOQTFreeSpace = val8;
 	return _TRUE;
 }

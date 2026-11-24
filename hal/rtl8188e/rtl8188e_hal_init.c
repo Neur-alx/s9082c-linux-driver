@@ -857,7 +857,7 @@ static s32 _FWFreeToGo(_adapter *adapter, u32 min_cnt, u32 timeout_ms)
 	systime start = rtw_get_current_time();
 	u32 cnt = 0;
 	BOOLEAN is_s9082 = GET_HAL_DATA(adapter)->is_s9082;
-	u32 ready_bit = is_s9082 ? BIT6 : WINTINI_RDY;
+	u32 ready_bit = is_s9082 ? BIT1 : WINTINI_RDY;
 
 	value32 = rtw_read32(adapter, REG_MCUFWDL);
 	RTW_INFO("_FWFreeToGo: initial REG_MCUFWDL=0x%08x\n", value32);

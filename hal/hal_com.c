@@ -12426,13 +12426,17 @@ void rtw_var_set_basic_rate(PADAPTER padapter, u8 *val) {
 
 	RTW_INFO("HW_VAR_BASIC_RATE: %#x->%#x->%#x\n", input_b, masked, ioted);
 
-	/* Set RRSR rate table (rtw_phydm_set_rrsr reverses via s9082c_write_bbreg). */
+	/* Set RRSR rate table. S9082C-FIX (Bug#8): rtw_phydm_set_rrsr schreibt roh
+	 * (kein Bit-Reverse) -> für is_s9082 den logischen Wert erneut spiegeln. */
 	temp_RRSR = rtw_read32(padapter, REG_RRSR);
 	if (pHalData->is_s9082)
 		temp_RRSR = s9082_bit_reverse32(temp_RRSR);
 	temp_RRSR &= 0xFFFF0000;
 	temp_RRSR |= BrateCfg;
-	rtw_phydm_set_rrsr(padapter, temp_RRSR, TRUE);
+	if (pHalData->is_s9082)
+		rtw_write32(padapter, REG_RRSR, s9082_bit_reverse32(temp_RRSR));
+	else
+		rtw_phydm_set_rrsr(padapter, temp_RRSR, TRUE);
 
 	if (pHalData->is_s9082) {
 		u8 rrsr2 = s9082_bit_reverse8(rtw_read8(padapter, REG_RRSR + 2));

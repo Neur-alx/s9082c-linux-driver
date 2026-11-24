@@ -2657,6 +2657,10 @@ static void s9082c_iqk_single(PADAPTER Adapter, s32 result[][8], u8 t,
 	/* IQK block off */
 	s9082c_write_bbreg(Adapter, 0x4e28, 0xffffff00, 0);
 
+	/* S9082C-FIX (Bug#6): RF 0xef (BIT19 = IQK/Testmodus) nach der IQK zurücksetzen,
+	 * sonst bleibt der RF8353-Transceiver im Kalibriermodus (init setzt 0x000a0). */
+	s9082c_write_rfreg(Adapter, RF_PATH_A, 0xef, 0xfffff, 0x000a0);
+
 	if (t != 0) {
 		if (!(*pi_mode)) {
 			rtw_write32(Adapter, 0x4820, 0x80000000);
