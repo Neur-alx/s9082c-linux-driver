@@ -1488,7 +1488,10 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 			 *		phy_lc_calibrate(padapter); */
 
 			if (pHalData->is_s9082) {
-				s9082c_iq_calibrate(padapter);
+				/* S9082C-FIX (Bug#3.3 counter-test): IQK vorerst aus, um zu
+				 * pruefen ob der per rtw_read32 roh gelesene RX-IQK (0x4ea4/0x4eac)
+				 * die RX-I/Q-Matrix (0x4c14/0x4ca0) zerstoert. */
+				/* s9082c_iq_calibrate(padapter); */
 				pHalData->bIQKInitialized = _TRUE;
 				s9082c_lc_calibrate(padapter);
 				s9082c_set_rf_path_switch(padapter, _TRUE);
