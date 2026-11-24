@@ -1106,7 +1106,10 @@ void rtl8188e_InitializeFirmwareVars(PADAPTER padapter)
 	pwrpriv->bFwCurrentInPSMode = _FALSE;
 
 	/* Init H2C cmd. */
-	rtw_write8(padapter, REG_HMETFR, 0x0f);
+	/* S9082C-FIX: Blob _InitializeFirmwareVars schreibt 0x41cc = 0xf0 (bit-gespiegelt).
+	 * Port schrieb roh 0x0f -> HMEBOX/8051-Statusregister falsch. */
+	rtw_write8(padapter, REG_HMETFR,
+		   GET_HAL_DATA(padapter)->is_s9082 ? s9082_bit_reverse8(0x0f) : 0x0f);
 
 	/* Init H2C counter. by tynli. 2009.12.09. */
 	pHalData->LastHMEBoxNum = 0;
