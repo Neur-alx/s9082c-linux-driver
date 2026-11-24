@@ -1936,9 +1936,9 @@ static const struct s9082c_phy_step s9082c_phy_init_seq[] = {
 	{ OP_DIRECT, 0x4e18, 0xffffffff, 0xb4b4b4b4 },
 	{ OP_DIRECT, 0x4e1c, 0xffffffff, 0xb4b4b4b4 },
 	{ OP_DIRECT, 0x4e28, 0xffffffff, 0x00000000 },
-	{ OP_BB_SET, 0x4e30, 0xffff0000, 0x3e3e2d2d },
+	{ OP_BB_SET, 0x4e30, 0xffff0000, 0x10001000 },
 	{ OP_BB_SET, 0x4e30, 0x0000ffff, 0x1000dc1f },
-	{ OP_BB_SET, 0x4e34, 0xffff0000, 0x1000dc1f },
+	{ OP_BB_SET, 0x4e34, 0xffff0000, 0x10001000 },
 	{ OP_BB_SET, 0x4e34, 0x0000ffff, 0x10108c1f },
 	{ OP_BB_SET, 0x4e38, 0xffff0000, 0x20120214 },
 	{ OP_BB_SET, 0x4e38, 0x0000ffff, 0x20100102 },
@@ -1967,9 +1967,9 @@ static const struct s9082c_phy_step s9082c_phy_init_seq[] = {
 	{ OP_DIRECT, 0x4ed0, 0xffffffff, 0x00030028 },
 	{ OP_DIRECT, 0x4ed4, 0xffffffff, 0x00030028 },
 	{ OP_DIRECT, 0x4ed8, 0xffffffff, 0x00030028 },
-	{ OP_BB_SET, 0x4edc, 0xffff0000, 0x10018c1f },
+	{ OP_BB_SET, 0x4edc, 0xffff0000, 0x2ee00000 },
 	{ OP_BB_SET, 0x4edc, 0x0000ffff, 0x2ee00014 },
-	{ OP_BB_SET, 0x4ee0, 0xffff0000, 0x2ee00014 },
+	{ OP_BB_SET, 0x4ee0, 0xffff0000, 0x2ee00000 },
 	{ OP_BB_SET, 0x4ee0, 0x0000ffff, 0x2ee00014 },
 	{ OP_BB_SET, 0x4ee8, 0xffff0000, 0x20102155 },
 	{ OP_BB_SET, 0x4ee8, 0x0000ffff, 0x20105448 },
@@ -2546,7 +2546,7 @@ static u8 s9082c_path_a_rx_iqk(PADAPTER Adapter)
 	rtw_write32(Adapter, 0x4840, 0xc0c00000);
 	rtw_write32(Adapter, 0x4840, 0xc00800f0);
 	rtw_write32(Adapter, 0x4840, 0xc0f4fe5f);
-	rtw_write32(Adapter, 0x4e28, 0x00010100);
+	s9082c_write_bbreg(Adapter, 0x4e28, 0xffffff00, 0x00808000);
 	rtw_write32(Adapter, 0x4e44, 0x80001200);
 	rtw_write32(Adapter, 0x4e30, 0x0c003138);
 	rtw_write32(Adapter, 0x4e34, 0x08003138);

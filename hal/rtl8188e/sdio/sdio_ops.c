@@ -1794,7 +1794,7 @@ u8 HalQueryTxOQTBufferStatus8189ESdio(PADAPTER padapter)
 	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(padapter);
 	u8 val8 = SdioLocalCmd52Read1Byte(padapter, 0x0025/*SDIO_REG_OQT_FREE_PG*/);
 	if (pHalData && pHalData->is_s9082)
-		val8 = (u8)s9082_permute16(val8);
+		val8 = s9082_bit_reverse8(val8);	/* 8-bit rev, nicht 16-bit permute! */
 	pHalData->SdioTxOQTFreeSpace = val8;
 	return _TRUE;
 }
