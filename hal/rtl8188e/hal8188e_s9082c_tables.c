@@ -3,6 +3,13 @@
 #include <Hal8188EPhyCfg.h>
 #include "hal8188e_s9082c_tables.h"
 
+/* S9082C diagnostic: enable the RF18 readback (s9082c_read_rfreg) after each
+ * channel set. The readback is NOT passive (writes 0x4824 twice, triggers a
+ * 3-wire read). Default 1; set to 0 to test the channel set WITHOUT the readback. */
+int rtw_s9082_rf_readback = 1;
+module_param(rtw_s9082_rf_readback, int, 0644);
+MODULE_PARM_DESC(rtw_s9082_rf_readback, "S9082C: RF18 readback after channel set (diagnostic)");
+
 const u32 array_mp_s9082c_radioa[] = {
 0x000, 0x00030000,
 		0x008, 0x00084000,
@@ -2367,9 +2374,9 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 	pHalData->RfRegChnlVal[RF_PATH_A] = val;
 	s9082c_write_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff, val);
 
-	/* S9082C-DIAG: echter RF-Readback (0x4824-Pfad, NICHT 0x4840!) — zeigt, ob der
-	 * RF8353 den geschriebenen Kanal wirklich übernommen hat. */
-	{
+	/* S9082C-DIAG: echter RF-Readback (0x4824-Pfad, NICHT 0x4840!) — optional
+	 * (rtw_s9082_rf_readback). Zeigt, ob der RF8353 den Kanal annimmt; NICHT passiv. */
+	if (rtw_s9082_rf_readback) {
 		u32 rf18_rb = s9082c_read_rfreg(Adapter, RF_PATH_A, 0x18, 0xfffff);
 		RTW_INFO("S9RF18: ch=%u req=0x%05x rb=0x%05x\n", channel, val, rf18_rb);
 	}
