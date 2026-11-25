@@ -1605,7 +1605,7 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 	/* ack for xmit mgmt frames. */
 	if (pHalData->is_s9082)
 		rtw_write32(padapter, REG_FWHW_TXQ_CTRL,
-			(rtw_read32(padapter, REG_FWHW_TXQ_CTRL) & ~BIT(12)) | 0x00000800);
+			(rtw_read32(padapter, REG_FWHW_TXQ_CTRL) | 0x00000800));
 	else
 		rtw_write32(padapter, REG_FWHW_TXQ_CTRL,
 			rtw_read32(padapter, REG_FWHW_TXQ_CTRL) | BIT(12));
