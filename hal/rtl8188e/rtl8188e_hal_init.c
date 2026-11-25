@@ -28,12 +28,18 @@
 static void iol_mode_enable(PADAPTER padapter, u8 enable)
 {
 	u8 reg_0xf0 = 0;
+	u8 offload_en = SW_OFFLOAD_EN;
+
+	/* S9082C: REG_SYS_CFG (0x00f0) braucht Bit-Reversal.
+	 * Blob enable_iol_mode schreibt 0x01 = s9082_bit_reverse8(SW_OFFLOAD_EN=0x80). */
+	if (GET_HAL_DATA(padapter)->is_s9082)
+		offload_en = s9082_bit_reverse8(SW_OFFLOAD_EN);
 
 	if (enable) {
 		/* Enable initial offload */
 		reg_0xf0 = rtw_read8(padapter, REG_SYS_CFG);
-		/* RTW_INFO("%s reg_0xf0:0x%02x, write 0x%02x\n", __FUNCTION__, reg_0xf0, reg_0xf0|SW_OFFLOAD_EN); */
-		rtw_write8(padapter, REG_SYS_CFG, reg_0xf0 | SW_OFFLOAD_EN);
+		/* RTW_INFO("%s reg_0xf0:0x%02x, write 0x%02x\n", __FUNCTION__, reg_0xf0, reg_0xf0|offload_en); */
+		rtw_write8(padapter, REG_SYS_CFG, reg_0xf0 | offload_en);
 
 		if (GET_HAL_DATA(padapter)->bFWReady == _FALSE) {
 			printk("bFWReady == _FALSE call reset 8051...\n");
@@ -43,8 +49,8 @@ static void iol_mode_enable(PADAPTER padapter, u8 enable)
 	} else {
 		/* disable initial offload */
 		reg_0xf0 = rtw_read8(padapter, REG_SYS_CFG);
-		/* RTW_INFO("%s reg_0xf0:0x%02x, write 0x%02x\n", __FUNCTION__, reg_0xf0, reg_0xf0& ~SW_OFFLOAD_EN); */
-		rtw_write8(padapter, REG_SYS_CFG, reg_0xf0 & ~SW_OFFLOAD_EN);
+		/* RTW_INFO("%s reg_0xf0:0x%02x, write 0x%02x\n", __FUNCTION__, reg_0xf0, reg_0xf0 & ~offload_en); */
+		rtw_write8(padapter, REG_SYS_CFG, reg_0xf0 & ~offload_en);
 	}
 }
 
@@ -54,9 +60,36 @@ static s32 iol_execute(PADAPTER padapter, u8 control)
 	u8 reg_0x88 = 0, reg_1c7 = 0;
 	systime start = 0;
 	u32 passing_time = 0;
+	u8 ctl_wire, reg_logical;
 
 	systime t1, t2;
 	control = control & 0x0f;
+
+	if (GET_HAL_DATA(padapter)->is_s9082) {
+		/* S9082C: Control bit-reversed nach REG_HMEBOX_E0 (0x0088) schreiben,
+		 * pollen bis Done, dann reg_logical = reverse(reg_0x88) und Done/Error pruefen.
+		 * 1:1 Blob execute_iol (0x64cd0): ctl_wire = s9082_bit_reverse8(control). */
+		ctl_wire = s9082_bit_reverse8(control);
+		reg_0x88 = rtw_read8(padapter, REG_HMEBOX_E0);
+		rtw_write8(padapter, REG_HMEBOX_E0, reg_0x88 | ctl_wire);
+
+		t1 = start = rtw_get_current_time();
+		while ((reg_0x88 = rtw_read8(padapter, REG_HMEBOX_E0)) & ctl_wire
+		       && (passing_time = rtw_get_passing_time_ms(start)) < 1000)
+			;
+
+		reg_0x88 = rtw_read8(padapter, REG_HMEBOX_E0);
+		reg_logical = s9082_bit_reverse8(reg_0x88);
+		status = ((reg_logical & (control << 4)) || (reg_logical & control))
+			 ? _FAIL : _SUCCESS;
+		t2 = rtw_get_current_time();
+		RTW_INFO("iol_execute S9082: control=0x%02x ctl_wire=0x%02x reg_0x88=0x%02x "
+			 "reg_logical=0x%02x %u ms %s\n",
+			 control, ctl_wire, reg_0x88, reg_logical, passing_time,
+			 status == _SUCCESS ? "SUCCESS" : "FAIL");
+		return status;
+	}
+
 	reg_0x88 = rtw_read8(padapter, REG_HMEBOX_E0);
 	/* RTW_INFO("%s reg_0x88:0x%02x, write 0x%02x\n", __FUNCTION__, reg_0x88, reg_0x88|control); */
 	rtw_write8(padapter, REG_HMEBOX_E0,  reg_0x88 | control);
@@ -397,13 +430,11 @@ static s32 iol_read_efuse(
 
 s32 rtl8188e_iol_efuse_patch(PADAPTER padapter)
 {
-	HAL_DATA_TYPE *pHalData = GET_HAL_DATA(padapter);
 	s32	result = _SUCCESS;
 
-	if (pHalData && pHalData->is_s9082) {
-		RTW_INFO("rtl8188e_iol_efuse_patch: S9082 detected, skipping IOL efuse patch\n");
-		return _SUCCESS;
-	}
+	/* S9082C: IOL-Efuse-Patch NICHT mehr ueberspringen — der Blob (tilk_fw_iol=1)
+	 * fuehrt CMD_READ_EFUSE_MAP + CMD_EFUSE_PATCH bei jedem Init aus (Bit-Reversal
+	 * in iol_mode_enable/iol_execute jetzt S9082C-korrekt). */
 
 	if (rtw_IOL_applied(padapter)) {
 		iol_mode_enable(padapter, 1);
