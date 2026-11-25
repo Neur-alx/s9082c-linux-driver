@@ -17,6 +17,10 @@
 #include <drv_types.h>
 #include <hal_data.h>
 
+/* S9082C-DIAG (fix-test) */
+extern int rtw_s9082_force_active_h2c;	/* core/rtw_mlme_ext.c */
+extern void rtl8188e_set_FwPwrMode_cmd(PADAPTER padapter, u8 Mode);	/* hal/rtl8188e/rtl8188e_cmd.c */
+
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("Realtek Wireless Lan Driver");
 MODULE_AUTHOR("Realtek Semiconductor Corp.");
@@ -3606,6 +3610,10 @@ int _netdev_open(struct net_device *pnetdev)
 	/*if (padapter->bup == _FALSE) */
 	{
 		rtw_hal_iface_init(padapter);
+
+		/* S9082C-DIAG: H2C_PWR_MODE(ACTIVE) nach FW-Init (ip link up) senden. */
+		if (rtw_s9082_force_active_h2c)
+			rtl8188e_set_FwPwrMode_cmd(padapter, PS_MODE_ACTIVE);
 
 		#ifdef CONFIG_RTW_NAPI
 		if(padapter->napi_state == NAPI_DISABLE) {

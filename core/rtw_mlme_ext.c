@@ -33,6 +33,13 @@ int rtw_s9082_skip_iqk = 0;
 module_param(rtw_s9082_skip_iqk, int, 0644);
 MODULE_PARM_DESC(rtw_s9082_skip_iqk, "S9082C diag: skip IQK/LCK at init (1=skip, stabilizes marginal boot)");
 
+/* S9082C-DIAG: bei =1 explizit H2C_PWR_MODE(PS_MODE_ACTIVE) nach FW-Init (ip link up)
+ * und direkt vor Set_MSR(STA) im start_clnt_join senden. Default 0 = 1:1 wie 1185B8. */
+int rtw_s9082_force_active_h2c = 0;
+module_param(rtw_s9082_force_active_h2c, int, 0644);
+MODULE_PARM_DESC(rtw_s9082_force_active_h2c, "S9082C diag: send H2C_PWR_MODE(ACTIVE) at open+before STA MSR (1=on)");
+extern void rtl8188e_set_FwPwrMode_cmd(PADAPTER padapter, u8 Mode);	/* hal/rtl8188e/rtl8188e_cmd.c */
+
 
 struct mlme_handler mlme_sta_tbl[] = {
 	{WIFI_ASSOCREQ,		"OnAssocReq",	&OnAssocReq},
@@ -11256,6 +11263,11 @@ void start_clnt_join(_adapter *padapter)
 	}
 
 	if (caps & cap_ESS) {
+		/* S9082C-DIAG: H2C_PWR_MODE(ACTIVE) VOR Set_MSR(STA) senden, damit die
+		 * 8051 nicht in den Default-PS-State (0x8186=3 -> CR=0x3f RX-Stopp) faellt. */
+		if (rtw_s9082_force_active_h2c)
+			rtl8188e_set_FwPwrMode_cmd(padapter, PS_MODE_ACTIVE);
+
 		Set_MSR(padapter, WIFI_FW_STATION_STATE);
 
 		val8 = (pmlmeinfo->auth_algo == dot11AuthAlgrthm_8021X) ? 0xcc : 0xcf;
