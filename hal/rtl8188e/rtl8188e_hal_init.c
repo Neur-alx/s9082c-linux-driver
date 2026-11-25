@@ -83,7 +83,7 @@ static s32 iol_execute(PADAPTER padapter, u8 control)
 		status = ((reg_logical & (control << 4)) || (reg_logical & control))
 			 ? _FAIL : _SUCCESS;
 		t2 = rtw_get_current_time();
-		RTW_INFO("iol_execute S9082: control=0x%02x ctl_wire=0x%02x reg_0x88=0x%02x "
+		pr_info("iol_execute S9082: control=0x%02x ctl_wire=0x%02x reg_0x88=0x%02x "
 			 "reg_logical=0x%02x %u ms %s\n",
 			 control, ctl_wire, reg_0x88, reg_logical, passing_time,
 			 status == _SUCCESS ? "SUCCESS" : "FAIL");
@@ -1460,7 +1460,10 @@ ReadEFuseByIC(
 #ifdef CONFIG_IOL_READ_EFUSE_MAP
 	if (!bPseudoTest) { /* && rtw_IOL_applied(Adapter)) */
 		int ret = _FAIL;
-		if (rtw_IOL_applied(Adapter)) {
+		/* S9082C: IOL-EFUSE-Read beim Probe NICHT ausfuehren — der 8188e-Read
+		 * (efuse_read_phymap_from_txpktbuf) ist mit S9082 inkompatibel (pollt 0x143
+		 * endlos, Fake-MAC). Nativen Hal_EfuseReadEFuse88E erzwingen. */
+		if (rtw_IOL_applied(Adapter) && !pHalData->is_s9082) {
 			rtw_hal_power_on(Adapter);
 
 			iol_mode_enable(Adapter, 1);
