@@ -19,7 +19,43 @@
 #include <recv_osdep.h>
 #include <rtl8188e_hal.h>
 
+/* S9082C-DIAG: rein passive RX-Statistik (monotone Zaehler, 1-Hz-Ausgabe).
+ * Keine Register-Writes, kein RF-Readback, kein printk im IRQ/Tasklet-Pfad
+ * ausser der 1-Hz-Work-Zeile. Zaehlt nur, was ohnehin schon anfaengt. */
+#define CONFIG_S9082C_RXSTAT 1
+
 static void rtl8188es_recv_tasklet(unsigned long priv);
+
+#ifdef CONFIG_S9082C_RXSTAT
+#include <linux/workqueue.h>
+struct s9082c_rxstat {
+	atomic_t	bufs;	/* erfolgreich eingelesene SDIO-RX-Puffer */
+	atomic64_t	bytes;	/* Bytes dieser Puffer */
+	atomic_t	norm;	/* normal zugestellte RX-Frames */
+	atomic_t	crc;	/* CRC-Fehler */
+	atomic_t	icv;	/* ICV-Fehler */
+	atomic_t	bcn;	/* Beacons (hdr[0]==0x80), BSSID-unabhaengig */
+	atomic_t	prb;	/* Probe-Responses (hdr[0]==0x50) */
+	atomic_t	alex;	/* Ziel-BSSID 3c:a6:2f:06:2d:f7 */
+};
+static struct s9082c_rxstat s9rxstat;
+static struct delayed_work s9rxstat_work;
+static PADAPTER s9rxstat_adapter;
+
+static void s9082c_rxstat_fn(struct work_struct *w)
+{
+	PADAPTER padapter = s9rxstat_adapter;
+	if (padapter) {
+		u8 ch = GET_HAL_DATA(padapter)->current_channel;
+		pr_info("S9STAT: bufs=%d bytes=%lld norm=%d crc=%d icv=%d bcn=%d prb=%d alex=%d ch=%u\n",
+			atomic_read(&s9rxstat.bufs), (long long)atomic64_read(&s9rxstat.bytes),
+			atomic_read(&s9rxstat.norm), atomic_read(&s9rxstat.crc),
+			atomic_read(&s9rxstat.icv), atomic_read(&s9rxstat.bcn),
+			atomic_read(&s9rxstat.prb), atomic_read(&s9rxstat.alex), ch);
+	}
+	schedule_delayed_work(&s9rxstat_work, HZ);
+}
+#endif
 
 static s32 initrecvbuf(struct recv_buf *precvbuf, PADAPTER padapter)
 {
@@ -126,6 +162,12 @@ s32 rtl8188es_init_recv_priv(PADAPTER padapter)
 	tasklet_init(&precvpriv->recv_tasklet,
 		     rtl8188es_recv_tasklet,
 		     (unsigned long)padapter);
+#ifdef CONFIG_S9082C_RXSTAT
+	/* S9082C-DIAG: 1-Hz-Statistik starten (rein passiv) */
+	s9rxstat_adapter = padapter;
+	INIT_DELAYED_WORK(&s9rxstat_work, s9082c_rxstat_fn);
+	schedule_delayed_work(&s9rxstat_work, HZ);
+#endif
 	goto exit;
 
 initbuferror:
@@ -170,6 +212,10 @@ void rtl8188es_free_recv_priv(PADAPTER padapter)
 	/* 3 1. kill tasklet */
 #ifdef PLATFORM_LINUX
 	tasklet_kill(&precvpriv->recv_tasklet);
+#endif
+#ifdef CONFIG_S9082C_RXSTAT
+	cancel_delayed_work_sync(&s9rxstat_work);
+	s9rxstat_adapter = NULL;
 #endif
 
 	/* 3 2. free all recv buffers */
@@ -225,6 +271,12 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 		transfer_len = (s32)precvbuf->len;
 		ptr = precvbuf->pdata;
 
+#ifdef CONFIG_S9082C_RXSTAT
+		/* erfolgreich eingelesener SDIO-RX-Puffer (kein zusaetzl. SDIO-Zugriff) */
+		atomic_inc(&s9rxstat.bufs);
+		atomic64_add(transfer_len, &s9rxstat.bytes);
+#endif
+
 		do {
 			precvframe = rtw_alloc_recvframe(&precvpriv->free_recv_queue);
 			if (precvframe == NULL) {
@@ -243,10 +295,9 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 
 			pattrib = &precvframe->u.hdr.attrib;
 
-			/* S9082C RX probe (before crc_err early-break, so crc=1 frames
-			 * are seen regardless of RCR_ACRC32). Prints the real RX decode
-			 * channel (pattrib->ch) + crc/icv/rate for the target BSSID, and
-			 * a rate-limited sample of any beacon with its decode channel. */
+#ifdef CONFIG_S9082C_RXSTAT
+			/* S9082C-DIAG: monotone Zaehler, BSSID-unabhaengig, vor crc_err-Break.
+			 * Kein printk im Tasklet (nur 1-Hz-Work-Zeile). */
 			if (pattrib->pkt_len >= 24) {
 				u32 _rsz = RXDESC_SIZE + pattrib->drvinfo_sz;
 				if (rtw_hal_rcr_check(padapter, RCR_APP_BA_SSN))
@@ -255,23 +306,21 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 					u8 *hdr = ptr + _rsz + pattrib->shift_sz;
 					u8 b0 = hdr[16], b1 = hdr[17], b2 = hdr[18];
 					u8 b3 = hdr[19], b4 = hdr[20], b5 = hdr[21];
+					atomic_inc(&s9rxstat.norm);
+					if (pattrib->crc_err)
+						atomic_inc(&s9rxstat.crc);
+					if (pattrib->icv_err)
+						atomic_inc(&s9rxstat.icv);
+					if (hdr[0] == 0x80)
+						atomic_inc(&s9rxstat.bcn);
+					else if (hdr[0] == 0x50)
+						atomic_inc(&s9rxstat.prb);
 					if (b0 == 0x3c && b1 == 0xa6 && b2 == 0x2f &&
-					    b3 == 0x06 && b4 == 0x2d && b5 == 0xf7) {
-						pr_info("S9RAW_FB: len=%u crc=%u icv=%u rate=%u rxch=%u cur=%u\n",
-							pattrib->pkt_len, pattrib->crc_err, pattrib->icv_err,
-							pattrib->data_rate, pattrib->ch,
-							GET_HAL_DATA(padapter)->current_channel);
-					} else if (hdr[0] == 0x80) {
-						static u32 s9raw_any;
-						if (s9raw_any < 20) {
-							s9raw_any++;
-							pr_info("S9RAW_ANY: bssid=%pM crc=%u rate=%u rxch=%u cur=%u\n",
-								hdr + 16, pattrib->crc_err, pattrib->data_rate,
-								pattrib->ch, GET_HAL_DATA(padapter)->current_channel);
-						}
-					}
+					    b3 == 0x06 && b4 == 0x2d && b5 == 0xf7)
+						atomic_inc(&s9rxstat.alex);
 				}
 			}
+#endif
 
 			/* fix Hardware RX data error, drop whole recv_buffer */
 			if (!rtw_hal_rcr_check(padapter, RCR_ACRC32) && pattrib->crc_err) {
