@@ -56,7 +56,7 @@ def load_blob():
 def parse_trace():
     """ Liest Kprobe-Trace: rtw_w8/w16/w32/sdio_wloc events. """
     port = {}  # addr -> list of (val, width)
-    ev = re.compile(r'(rtw_w8|rtw_w16|rtw_w32|sdio_wloc):\s+.*addr=0x([0-9a-f]+).*val=0x([0-9a-f]+)')
+    ev = re.compile(r'(rtw_w8|rtw_w16|rtw_w32|sdio_wloc):\s+.*addr=0x([0-9a-f]+).*val=(?:\+0\([^)]*\):x32|0x)([0-9a-f]+)')
     widthmap = {"rtw_w8":8,"rtw_w16":16,"rtw_w32":32,"sdio_wloc":"sdio"}
     for line in open(TRACE):
         m = ev.search(line)

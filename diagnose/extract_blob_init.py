@@ -31,6 +31,10 @@ WRITE_FUNCS = {
     "TDB_4Byte_Write": 32,
     "TDB_BBRegSet": "bbset",
     "tilk_hwreg_set": "hwreg",
+    "SdioCmd52Write1Byte": 8,
+    "SdioCmd52Write2Byte": 16,
+    "SdioCmd52Write4Byte": 32,
+    "_sdio_local_write": "sdio",
 }
 
 def disasm():
