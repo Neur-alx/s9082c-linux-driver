@@ -37,6 +37,10 @@ struct s9082c_rxstat {
 	atomic_t	bcn;	/* Beacons (hdr[0]==0x80), BSSID-unabhaengig */
 	atomic_t	prb;	/* Probe-Responses (hdr[0]==0x50) */
 	atomic_t	alex;	/* Ziel-BSSID 3c:a6:2f:06:2d:f7 */
+	atomic_t	r0;	/* pkt_rpt_type == 0 (NORMAL_RX) */
+	atomic_t	r1;	/* pkt_rpt_type == 1 (TX_REPORT1/CCX) */
+	atomic_t	r2;	/* pkt_rpt_type == 2 (TX_REPORT2) */
+	atomic_t	r3;	/* pkt_rpt_type == 3 (HIS_REPORT) */
 };
 static struct s9082c_rxstat s9rxstat;
 static struct delayed_work s9rxstat_work;
@@ -47,11 +51,13 @@ static void s9082c_rxstat_fn(struct work_struct *w)
 	PADAPTER padapter = s9rxstat_adapter;
 	if (padapter) {
 		u8 ch = GET_HAL_DATA(padapter)->current_channel;
-		pr_info("S9STAT: bufs=%d bytes=%lld norm=%d crc=%d icv=%d bcn=%d prb=%d alex=%d ch=%u\n",
+		pr_info("S9STAT: bufs=%d bytes=%lld norm=%d crc=%d icv=%d bcn=%d prb=%d alex=%d r0=%d r1=%d r2=%d r3=%d ch=%u\n",
 			atomic_read(&s9rxstat.bufs), (long long)atomic64_read(&s9rxstat.bytes),
 			atomic_read(&s9rxstat.norm), atomic_read(&s9rxstat.crc),
 			atomic_read(&s9rxstat.icv), atomic_read(&s9rxstat.bcn),
-			atomic_read(&s9rxstat.prb), atomic_read(&s9rxstat.alex), ch);
+			atomic_read(&s9rxstat.prb), atomic_read(&s9rxstat.alex),
+			atomic_read(&s9rxstat.r0), atomic_read(&s9rxstat.r1),
+			atomic_read(&s9rxstat.r2), atomic_read(&s9rxstat.r3), ch);
 	}
 	schedule_delayed_work(&s9rxstat_work, HZ);
 }
@@ -297,7 +303,30 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 
 #ifdef CONFIG_S9082C_RXSTAT
 			/* S9082C-DIAG: monotone Zaehler, BSSID-unabhaengig, vor crc_err-Break.
-			 * Kein printk im Tasklet (nur 1-Hz-Work-Zeile). */
+			 * Kein printk im Tasklet (nur 1-Hz-Work-Zeile + Einmal-Dump erste 5 Puffer). */
+			{
+				struct recv_stat *_rs = (struct recv_stat *)ptr;
+				u32 _rxdw0 = le32_to_cpu(_rs->rxdw0);
+				u32 _rxdw3 = le32_to_cpu(_rs->rxdw3);
+				u8 _rtype = pattrib->pkt_rpt_type;
+				static u8 _dump_cnt;
+
+				if (_rtype == 0)
+					atomic_inc(&s9rxstat.r0);
+				else if (_rtype == 1)
+					atomic_inc(&s9rxstat.r1);
+				else if (_rtype == 2)
+					atomic_inc(&s9rxstat.r2);
+				else
+					atomic_inc(&s9rxstat.r3);
+
+				if (_dump_cnt < 5) {
+					_dump_cnt++;
+					pr_info("S9DUMP: rxdw0=0x%08x rxdw3=0x%08x pkt_len=%u drvinfo=%u shift=%u rpt=%u\n",
+						_rxdw0, _rxdw3, pattrib->pkt_len,
+						pattrib->drvinfo_sz, pattrib->shift_sz, _rtype);
+				}
+			}
 			if (pattrib->pkt_len >= 24) {
 				u32 _rsz = RXDESC_SIZE + pattrib->drvinfo_sz;
 				if (rtw_hal_rcr_check(padapter, RCR_APP_BA_SSN))
