@@ -2326,6 +2326,15 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 	u8 regBwOpMode;
 	u32 val;
 
+	/* S9082C-DIAG: RF-Kanal-Offset (Default 0; -5 kompensiert +5-Kanal-Offset). */
+	extern int rtw_s9082_ch_offset;
+	if (rtw_s9082_ch_offset) {
+		int ch = (int)channel + rtw_s9082_ch_offset;
+		if (ch < 1) ch = 1;
+		if (ch > 13) ch = 13;
+		channel = (u8)ch;
+	}
+
 	if (channel == 0)
 		channel = 1;
 

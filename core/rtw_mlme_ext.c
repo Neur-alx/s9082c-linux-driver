@@ -39,6 +39,12 @@ int rtw_s9082_skip_lck = 0;
 module_param(rtw_s9082_skip_lck, int, 0644);
 MODULE_PARM_DESC(rtw_s9082_skip_lck, "S9082C diag: skip LCK (s9082c_lc_calibrate) at init (1=skip)");
 
+/* S9082C-DIAG: Kanal-Offset (Default 0 = unveraendert). Bei -5: RF-Kanal = channel-5
+ * (kompensiert den deterministischen +25-MHz/+5-Kanal-Offset im Kanal-Feld). */
+int rtw_s9082_ch_offset = 0;
+module_param(rtw_s9082_ch_offset, int, 0644);
+MODULE_PARM_DESC(rtw_s9082_ch_offset, "S9082C diag: RF channel offset (default 0, -5 kompensiert +5-Kanal-Offset)");
+
 /* S9082C-DIAG: bei =1 explizit H2C_PWR_MODE(PS_MODE_ACTIVE) nach FW-Init (ip link up)
  * und direkt vor Set_MSR(STA) im start_clnt_join senden. Default 0 = 1:1 wie 1185B8. */
 int rtw_s9082_force_active_h2c = 0;
