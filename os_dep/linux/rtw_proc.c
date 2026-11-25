@@ -4335,12 +4335,26 @@ static int proc_get_cur_beacon_keys(struct seq_file *m, void *v)
 * rtw_adapter_proc:
 * init/deinit when register/unregister net_device
 */
+/* S9082C-DIAG: lck_now — triggert s9082c_lc_calibrate zur Laufzeit (A/B-Test +5-Offset) */
+extern void s9082c_lc_calibrate(PADAPTER Adapter);
+ssize_t proc_set_lck_now(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data)
+{
+	struct net_device *dev = data;
+	_adapter *padapter = (_adapter *)rtw_netdev_priv(dev);
+	if (count > 0 && padapter && GET_HAL_DATA(padapter) && GET_HAL_DATA(padapter)->is_s9082) {
+		s9082c_lc_calibrate(padapter);
+		pr_info("S9LCK: lck_now triggered\n");
+	}
+	return count;
+}
+
 const struct rtw_proc_hdl adapter_proc_hdls[] = {
 #if RTW_SEQ_FILE_TEST
 	RTW_PROC_HDL_SEQ("seq_file_test", &seq_file_test, NULL),
 #endif
 	RTW_PROC_HDL_SSEQ("write_reg", NULL, proc_set_write_reg),
 	RTW_PROC_HDL_SSEQ("read_reg", proc_get_read_reg, proc_set_read_reg),
+	RTW_PROC_HDL_SSEQ("lck_now", NULL, proc_set_lck_now),
 	RTW_PROC_HDL_SSEQ("tx_rate_bmp", proc_get_dump_tx_rate_bmp, NULL),
 	RTW_PROC_HDL_SSEQ("adapters_status", proc_get_dump_adapters_status, NULL),
 #ifdef CONFIG_RTW_CUSTOMER_STR
