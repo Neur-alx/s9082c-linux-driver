@@ -1492,11 +1492,14 @@ static u32 rtl8188es_hal_init(PADAPTER padapter)
 			if (pHalData->is_s9082) {
 				/* S9082C-DIAG: rtw_s9082_skip_iqk=1 ueberspringt IQK/LCK (stabilisiert
 				 * marginale Init; s9082c_iq_calibrate/Stage-2 laesst sonst Register
-				 * wie 0x4e40..0x4e4c/RF0x30..32 im nicht-restaurierten Zustand). */
-				if (!rtw_s9082_skip_iqk)
+				 * wie 0x4e40..0x4e4c/RF0x30..32 im nicht-restaurierten Zustand).
+				 * FIX: LCK (s9082c_lc_calibrate) lief trotz skip_iqk ungegated -> VCO-Tank-
+				 * Kalibrierung verschob Synthesizer um +5 Kanaele (Blob: 0x LCK). */
+				if (!rtw_s9082_skip_iqk) {
 					s9082c_iq_calibrate(padapter);
+					s9082c_lc_calibrate(padapter);
+				}
 				pHalData->bIQKInitialized = _TRUE;
-				s9082c_lc_calibrate(padapter);
 				s9082c_set_rf_path_switch(padapter, _TRUE);
 			} else {
 				HAL_INIT_PROFILE_TAG(HAL_INIT_STAGES_PW_TRACK);
