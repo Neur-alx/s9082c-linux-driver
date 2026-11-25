@@ -305,9 +305,6 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 			/* S9082C-DIAG: monotone Zaehler, BSSID-unabhaengig, vor crc_err-Break.
 			 * Kein printk im Tasklet (nur 1-Hz-Work-Zeile + Einmal-Dump erste 5 Puffer). */
 			{
-				struct recv_stat *_rs = (struct recv_stat *)ptr;
-				u32 _rxdw0 = le32_to_cpu(_rs->rxdw0);
-				u32 _rxdw3 = le32_to_cpu(_rs->rxdw3);
 				u8 _rtype = pattrib->pkt_rpt_type;
 				static u8 _dump_cnt;
 
@@ -320,11 +317,19 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 				else
 					atomic_inc(&s9rxstat.r3);
 
-				if (_dump_cnt < 5) {
+				/* S9DUMP: nur NORMAL_RX (rpt=0), erste 10, mit hdr[0..7] */
+				if (_rtype == 0 && _dump_cnt < 10) {
+					u32 _rsz = RXDESC_SIZE + pattrib->drvinfo_sz;
+					u8 *hdr;
+					if (rtw_hal_rcr_check(padapter, RCR_APP_BA_SSN))
+						_rsz += 4;
+					hdr = ptr + _rsz + pattrib->shift_sz;
 					_dump_cnt++;
-					pr_info("S9DUMP: rxdw0=0x%08x rxdw3=0x%08x pkt_len=%u drvinfo=%u shift=%u rpt=%u\n",
-						_rxdw0, _rxdw3, pattrib->pkt_len,
-						pattrib->drvinfo_sz, pattrib->shift_sz, _rtype);
+					pr_info("S9DUMP: pkt_len=%u drvinfo=%u shift=%u rate=%u crc=%u ch=%u hdr=%8ph\n",
+						pattrib->pkt_len, pattrib->drvinfo_sz,
+						pattrib->shift_sz, pattrib->data_rate,
+						pattrib->crc_err,
+						GET_HAL_DATA(padapter)->current_channel, hdr);
 				}
 			}
 			if (pattrib->pkt_len >= 24) {
