@@ -4338,7 +4338,7 @@ static int proc_get_cur_beacon_keys(struct seq_file *m, void *v)
 #ifndef CONFIG_S9082C_DEBUG
 #define CONFIG_S9082C_DEBUG 0
 #endif
-#ifdef CONFIG_S9082C_DEBUG
+#if CONFIG_S9082C_DEBUG
 /* S9082C-DIAG: lck_now — triggert s9082c_lc_calibrate zur Laufzeit (A/B-Test +5-Offset) */
 extern void s9082c_lc_calibrate(PADAPTER Adapter);
 ssize_t proc_set_lck_now(struct file *file, const char __user *buffer, size_t count, loff_t *pos, void *data)
@@ -4359,7 +4359,7 @@ const struct rtw_proc_hdl adapter_proc_hdls[] = {
 #endif
 	RTW_PROC_HDL_SSEQ("write_reg", NULL, proc_set_write_reg),
 	RTW_PROC_HDL_SSEQ("read_reg", proc_get_read_reg, proc_set_read_reg),
-#ifdef CONFIG_S9082C_DEBUG
+#if CONFIG_S9082C_DEBUG
 	RTW_PROC_HDL_SSEQ("lck_now", NULL, proc_set_lck_now),
 #endif
 	RTW_PROC_HDL_SSEQ("tx_rate_bmp", proc_get_dump_tx_rate_bmp, NULL),

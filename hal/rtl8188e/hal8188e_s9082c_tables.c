@@ -2206,11 +2206,6 @@ int s9082c_bb_config(PADAPTER Adapter)
 	 * MUST be written AFTER the crystal-cap RMW above (mask 0x7ff800 overlaps bits [22:16]
 	 * = low 7 bits of 0x4026). Without this the XTAL/clock stays 0xbc19 -> +25 MHz synth
 	 * offset -> marginal link. With 0xac82 the synth locks ch11 at field 11 (ch_offset=0). */
-	{
-		u32 old_xtal = rtw_read32(Adapter, 0x4024);
-		RTW_INFO("S9082C: 0x4024 before XTAL fix = 0x%08x (upper16=0x%04x, writing 0xac82)\n",
-			 old_xtal, (old_xtal >> 16) & 0xffff);
-	}
 	rtw_write16(Adapter, 0x4026, 0xac82);
 
 	/* 6. Configure RF Path Switch (Main Antenna) */
@@ -2337,6 +2332,10 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 	u8 regBwOpMode;
 	u32 val;
 
+#ifndef CONFIG_S9082C_DEBUG
+#define CONFIG_S9082C_DEBUG 0
+#endif
+#if CONFIG_S9082C_DEBUG
 	/* S9082C-DIAG: RF-Kanal-Offset (Default 0; -5 kompensiert +5-Kanal-Offset). */
 	extern int rtw_s9082_ch_offset;
 	if (rtw_s9082_ch_offset) {
@@ -2345,6 +2344,7 @@ void s9082c_set_chnl_bw(PADAPTER Adapter, u8 channel, enum channel_width Bandwid
 		if (ch > 13) ch = 13;
 		channel = (u8)ch;
 	}
+#endif
 
 	if (channel == 0)
 		channel = 1;

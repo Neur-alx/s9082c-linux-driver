@@ -26,7 +26,7 @@
 
 static void rtl8188es_recv_tasklet(unsigned long priv);
 
-#ifdef CONFIG_S9082C_RXSTAT
+#if CONFIG_S9082C_RXSTAT
 #include <linux/workqueue.h>
 struct s9082c_rxstat {
 	atomic_t	bufs;	/* erfolgreich eingelesene SDIO-RX-Puffer */
@@ -168,7 +168,7 @@ s32 rtl8188es_init_recv_priv(PADAPTER padapter)
 	tasklet_init(&precvpriv->recv_tasklet,
 		     rtl8188es_recv_tasklet,
 		     (unsigned long)padapter);
-#ifdef CONFIG_S9082C_RXSTAT
+#if CONFIG_S9082C_RXSTAT
 	/* S9082C-DIAG: 1-Hz-Statistik starten (rein passiv) */
 	s9rxstat_adapter = padapter;
 	INIT_DELAYED_WORK(&s9rxstat_work, s9082c_rxstat_fn);
@@ -219,7 +219,7 @@ void rtl8188es_free_recv_priv(PADAPTER padapter)
 #ifdef PLATFORM_LINUX
 	tasklet_kill(&precvpriv->recv_tasklet);
 #endif
-#ifdef CONFIG_S9082C_RXSTAT
+#if CONFIG_S9082C_RXSTAT
 	cancel_delayed_work_sync(&s9rxstat_work);
 	s9rxstat_adapter = NULL;
 #endif
@@ -277,7 +277,7 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 		transfer_len = (s32)precvbuf->len;
 		ptr = precvbuf->pdata;
 
-#ifdef CONFIG_S9082C_RXSTAT
+#if CONFIG_S9082C_RXSTAT
 		/* erfolgreich eingelesener SDIO-RX-Puffer (kein zusaetzl. SDIO-Zugriff) */
 		atomic_inc(&s9rxstat.bufs);
 		atomic64_add(transfer_len, &s9rxstat.bytes);
@@ -301,7 +301,7 @@ static void rtl8188es_recv_tasklet(unsigned long priv)
 
 			pattrib = &precvframe->u.hdr.attrib;
 
-#ifdef CONFIG_S9082C_RXSTAT
+#if CONFIG_S9082C_RXSTAT
 			/* S9082C-DIAG: monotone Zaehler, BSSID-unabhaengig, vor crc_err-Break.
 			 * Kein printk im Tasklet (nur 1-Hz-Work-Zeile + Einmal-Dump erste 5 Puffer). */
 			{
