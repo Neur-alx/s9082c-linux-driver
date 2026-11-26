@@ -22,7 +22,7 @@
 /* S9082C-DIAG: rein passive RX-Statistik (monotone Zaehler, 1-Hz-Ausgabe).
  * Keine Register-Writes, kein RF-Readback, kein printk im IRQ/Tasklet-Pfad
  * ausser der 1-Hz-Work-Zeile. Zaehlt nur, was ohnehin schon anfaengt. */
-#define CONFIG_S9082C_RXSTAT 1
+#define CONFIG_S9082C_RXSTAT 0
 
 static void rtl8188es_recv_tasklet(unsigned long priv);
 
