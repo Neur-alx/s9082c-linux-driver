@@ -80,12 +80,17 @@ s32 FillH2CCmd_88E(PADAPTER padapter, u8 ElementID, u32 CmdLen, u8 *pCmdBuffer)
 		return ret;
 	}
 
+#ifndef CONFIG_S9082C_DEBUG
+#define CONFIG_S9082C_DEBUG 0
+#endif
+#if CONFIG_S9082C_DEBUG
 	/* S9082C-DIAG: H2C-Log (ElementID + Payload + Zeitstempel) */
 	if (pHalData->is_s9082 && pCmdBuffer) {
 		pr_info("S9H2C: id=0x%02x len=%u bytes=%*phC t=%u\n",
 			ElementID, CmdLen, (int)CmdLen, pCmdBuffer,
 			(u32)(rtw_get_current_time() / 1000));
 	}
+#endif
 
 	_enter_critical_mutex(&(dvobj->h2c_fwcmd_mutex), NULL);
 

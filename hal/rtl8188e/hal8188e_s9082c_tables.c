@@ -6,7 +6,7 @@
 /* S9082C diagnostic: enable the RF18 readback (s9082c_read_rfreg) after each
  * channel set. The readback is NOT passive (writes 0x4824 twice, triggers a
  * 3-wire read). Default 1; set to 0 to test the channel set WITHOUT the readback. */
-int rtw_s9082_rf_readback = 1;
+int rtw_s9082_rf_readback = 0;
 module_param(rtw_s9082_rf_readback, int, 0644);
 MODULE_PARM_DESC(rtw_s9082_rf_readback, "S9082C: RF18 readback after channel set (diagnostic)");
 
