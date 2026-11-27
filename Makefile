@@ -2304,6 +2304,24 @@ uninstall:
 	rm -f $(MODDESTDIR)/$(MODULE_NAME).ko
 	/sbin/depmod -a ${KVER}
 
+DKMS_NAME ?= $(MODULE_NAME)
+DKMS_VER ?= 1.0.0
+
+dkms_install:
+	@echo "Installing $(DKMS_NAME) via DKMS..."
+	@mkdir -p /usr/src/$(DKMS_NAME)-$(DKMS_VER)
+	@cp -r * /usr/src/$(DKMS_NAME)-$(DKMS_VER)/
+	@dkms add -m $(DKMS_NAME) -v $(DKMS_VER) || true
+	@dkms build -m $(DKMS_NAME) -v $(DKMS_VER)
+	@dkms install -m $(DKMS_NAME) -v $(DKMS_VER) --force
+	@echo "DKMS installation complete."
+
+dkms_uninstall:
+	@echo "Uninstalling $(DKMS_NAME) from DKMS..."
+	@dkms remove -m $(DKMS_NAME) -v $(DKMS_VER) --all || true
+	@rm -rf /usr/src/$(DKMS_NAME)-$(DKMS_VER)
+	@echo "DKMS uninstallation complete."
+
 backup_rtlwifi:
 	@echo "Making backup rtlwifi drivers"
 ifneq (,$(wildcard $(STAGINGMODDIR)/rtl*))
