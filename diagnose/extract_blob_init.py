@@ -13,9 +13,9 @@ Die bereits verifizierten Bloecke (92 RF, 284 PHY, 130 AGC) werden markiert
 """
 import subprocess, re, sys, os
 
-BLOB = "/home/alx/s905x-tvbox/sdcard-build-backup/alexelec_9082xs/9082xs_obj.o"
-OBJDUMP = "aarch64-linux-gnu-objdump"
-OUT = "/tmp/opencode/s905x/blob_init_writes.tsv"
+BLOB = os.environ.get("BLOB_PATH", "9082xs_obj.o")
+OBJDUMP = os.environ.get("OBJDUMP", "aarch64-linux-gnu-objdump")
+OUT = os.environ.get("OUT_TSV", "blob_init_writes.tsv")
 ROOT = "_hal_init_tll9083xs"
 
 # Write-Funktionen -> (Breite, Name)
